@@ -1,0 +1,57 @@
+# seeds/aiseo-profile/config.yaml — AISEO Agent profile config
+#
+# Field authority is the Hermes DEFAULT_CONFIG in hermes_cli/config.py (D14).
+# Phase 0 verified field locations:
+#   - toolsets:                top-level (config.py:442; default ["hermes-cli"])
+#   - agent.disabled_toolsets: agent.disabled_toolsets (config.py:516; default [])
+#   - plugins.enabled:         opt-in allow-list (config.py:3518-3574)
+#   - display.streaming:       display.streaming (config.py:911); NOT top-level
+#                              -> plan template "streaming: false" was wrong;
+#                              we use display.streaming here (D-决策附录 entry).
+
+# model: <intentionally unset>
+# Why: aiseo profile is a fully isolated HERMES_HOME at ~/.hermes/profiles/aiseo/
+# (hermes_cli/main.py:119 `_apply_profile_override` sets os.environ["HERMES_HOME"]
+# to the profile path). Its `.env`, `config.yaml`, `providers`, and `auth` are
+# all independent — it does NOT inherit the default profile's API key or model.
+# To configure model + provider key for the aiseo profile, run ONE of:
+#   hermes -p aiseo setup           # full guided setup (recommended)
+#   hermes -p aiseo model           # if .env already copied / API key already set
+# Locking a specific model here (e.g. claude-sonnet-4-6) breaks users whose
+# only configured provider is something else. D3 decision: profile does not
+# lock the model.
+
+# NOTE (caveat): top-level `toolsets` is a declarative config — NOT a guarantee
+# of "active on every surface". Hermes loaders (CLI / TUI / Gateway) apply
+# surface-specific filtering. V1 verification gate (Phase 0) must confirm
+# CLI / TUI / Gateway equivalence; record any divergence to D-决策附录.
+toolsets:
+  - web
+  - search
+  - browser
+
+display:
+  streaming: false                      # D15 default off (Phase 1 OutputGate
+                                        # operates on full text; Phase 2 stream
+                                        # gate enables `streaming: true`).
+
+agent:
+  disabled_toolsets:                    # ToolGate defense layer 1: boot-time refusal
+    - terminal
+    - code_execution
+    - delegation
+    - messaging
+    - file
+    - skills                            # disables skills MANAGEMENT toolset
+                                        # (skills_list / skill_view / skill_manage);
+                                        # does NOT block seeds/aiseo-profile/skills/
+                                        # SKILL.md auto-scan (verify via V2).
+    - cronjob
+    - image_gen
+
+plugins:
+  enabled:
+    - aiseo-guard                       # D13: plugin discovery scans <repo>/plugins/
+                                        # (skip names: memory, context_engine,
+                                        # platforms, model-providers); aiseo-guard
+                                        # is not in the skip set, so it auto-loads.

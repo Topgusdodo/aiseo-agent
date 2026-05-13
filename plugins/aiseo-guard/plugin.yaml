@@ -1,0 +1,8 @@
+name: aiseo-guard
+version: 0.1.0
+description: "AISEO Agent guard plugin — InputGate / ToolGate / External Content Guard / OutputGate. Phase 0 skeleton; rule bodies land in Phase 1."
+hooks:
+  - pre_user_message
+  - pre_tool_call
+  - transform_tool_result
+  - transform_llm_output

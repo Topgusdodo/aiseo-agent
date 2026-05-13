@@ -12016,6 +12016,59 @@ class AIAgent:
                     if _preflight_tokens < self.context_compressor.threshold_tokens:
                         break  # Under threshold
 
+        # Plugin hook: pre_user_message
+        # Fired BEFORE pre_llm_call, before the conversation loop reaches
+        # the LLM. Used for hard InputGate: deterministic denylist that
+        # can abort the turn or rewrite user_message before it enters the
+        # LLM call. Contract:
+        #   None / {"action": "allow"}             -> pass through
+        #   {"action": "block", "message": "..."} -> abort turn; message
+        #                                            becomes assistant reply
+        #   {"action": "rewrite", "text": "..."}  -> replace user_message,
+        #                                            continue normally
+        # Multi-plugin: first-block-wins, then first-rewrite-wins
+        # (mirrors pre_gateway_dispatch). Exceptions caught + logged so a
+        # misbehaving plugin cannot break the core agent loop.
+        _pre_user_message_block: Optional[Dict[str, Any]] = None
+        try:
+            from hermes_cli.plugins import invoke_hook as _invoke_hook
+            _pum_results = _invoke_hook(
+                "pre_user_message",
+                session_id=self.session_id,
+                user_message=original_user_message,
+                conversation_history=list(messages),
+                is_first_turn=(not bool(conversation_history)),
+                model=self.model,
+                platform=getattr(self, "platform", None) or "",
+                sender_id=getattr(self, "_user_id", None) or "",
+            )
+            _rewritten_text: Optional[str] = None
+            for _r in _pum_results:
+                if not isinstance(_r, dict):
+                    continue
+                _action = _r.get("action")
+                if _action == "block":
+                    _pre_user_message_block = _r
+                    break  # first-block-wins
+                if _action == "rewrite" and _rewritten_text is None:
+                    _text = _r.get("text")
+                    if isinstance(_text, str):
+                        _rewritten_text = _text  # first-rewrite-wins
+            if _pre_user_message_block is None and _rewritten_text is not None:
+                original_user_message = _rewritten_text
+                user_message = _rewritten_text
+        except Exception as exc:
+            logger.warning("pre_user_message hook failed: %s", exc)
+
+        if _pre_user_message_block is not None:
+            _block_msg = _pre_user_message_block.get("message") or ""
+            return {
+                "final_response": _block_msg,
+                "messages": list(messages),
+                "interrupted": False,
+                "blocked_by_pre_user_message": True,
+            }
+
         # Plugin hook: pre_llm_call
         # Fired once per turn before the tool-calling loop.  Plugins can
         # return a dict with a ``context`` key (or a plain string) whose

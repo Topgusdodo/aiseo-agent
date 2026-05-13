@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# bin/aiseo — thin wrapper for AISEO Agent
+#
+# Responsibilities (Phase 0):
+#   1. D17 bootstrap: on first run, copy seeds/aiseo-profile/ to
+#      ~/.hermes/profiles/aiseo/ via pure mkdir + cp -R (no `hermes profile create`).
+#   2. exec hermes -p aiseo chat "$@" (passthrough; --help passthrough per D16).
+#
+# Compatibility:
+#   - macOS / Darwin: avoid `readlink -f` (BSD readlink lacks -f).
+#     Use `cd -P` with BASH_SOURCE for script-dir resolution.
+#   - Supports invocation via symlink, absolute path, or $PATH.
+#
+# Phase 2 will add wrapper-side --help intercept; Phase 0/1 passes through.
+
+set -euo pipefail
+
+# Resolve script + repo directories without depending on GNU readlink.
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd -P )"
+REPO_ROOT="$( cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd -P )"
+SEED_DIR="$REPO_ROOT/seeds/aiseo-profile"
+PROFILE_DIR="${HERMES_HOME:-$HOME/.hermes}/profiles/aiseo"
+
+# D17 bootstrap: pure filesystem operations; no hermes profile create / install.
+if [ ! -d "$PROFILE_DIR" ]; then
+  if [ ! -d "$SEED_DIR" ]; then
+    echo "[aiseo] error: seed directory not found at $SEED_DIR" >&2
+    exit 1
+  fi
+  echo "[aiseo] First run — bootstrapping profile at $PROFILE_DIR ..." >&2
+  mkdir -p "$PROFILE_DIR"
+  cp -R "$SEED_DIR/." "$PROFILE_DIR/"
+  echo "[aiseo] Profile ready. Run 'hermes setup' if you have not configured a provider yet." >&2
+fi
+
+exec hermes -p aiseo chat "$@"

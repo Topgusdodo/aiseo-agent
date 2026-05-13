@@ -134,6 +134,21 @@ VALID_HOOKS: Set[str] = {
     # Plugins return a string to replace the response text, or None/empty to leave unchanged.
     # First non-None string wins. Useful for vocabulary/personality transformation.
     "transform_llm_output",
+    # User message pre-processing hook. Fired in AIAgent.run_conversation()
+    # BEFORE pre_llm_call (and before the conversation loop reaches the LLM).
+    # Used for hard InputGate: deterministic denylist that can abort the turn
+    # or rewrite the user message before it enters the LLM call.
+    # Kwargs: session_id, user_message (str), conversation_history (list),
+    #         is_first_turn (bool), model, platform, sender_id.
+    # Plugins may return one of:
+    #   None or {"action": "allow"}                     -> normal pass-through
+    #   {"action": "block",   "message": "..."}         -> abort turn; message
+    #                                                       becomes assistant reply.
+    #   {"action": "rewrite", "text": "..."}            -> replace user_message,
+    #                                                       continue normally.
+    # Multi-plugin semantics: first-block-wins, then first-rewrite-wins
+    # (mirrors pre_gateway_dispatch in gateway/run.py).
+    "pre_user_message",
     "pre_llm_call",
     "post_llm_call",
     "pre_api_request",
