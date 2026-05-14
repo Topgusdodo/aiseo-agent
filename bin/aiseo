@@ -4,7 +4,8 @@
 # Responsibilities (Phase 0):
 #   1. D17 bootstrap: on first run, copy seeds/aiseo-profile/ to
 #      ~/.hermes/profiles/aiseo/ via pure mkdir + cp -R (no `hermes profile create`).
-#   2. exec hermes -p aiseo chat "$@" (passthrough; --help passthrough per D16).
+#   2. exec ${HERMES_CMD:-hermes} -p aiseo chat "$@" (passthrough; HERMES_CMD
+#      env override lets users set "uv run hermes" when not globally installed).
 #
 # Compatibility:
 #   - macOS / Darwin: avoid `readlink -f` (BSD readlink lacks -f).
@@ -33,4 +34,4 @@ if [ ! -d "$PROFILE_DIR" ]; then
   echo "[aiseo] Profile ready. Run 'hermes setup' if you have not configured a provider yet." >&2
 fi
 
-exec hermes -p aiseo chat "$@"
+exec ${HERMES_CMD:-hermes} -p aiseo chat "$@"
