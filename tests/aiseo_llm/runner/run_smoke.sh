@@ -2,17 +2,17 @@
 # tests/aiseo_llm/runner/run_smoke.sh
 #
 # Purpose:
-#   LLM-end smoke harness for AISEO Agent (Phase 1.5).
-#   Runs 28 adversarial prompts (5 buckets: S1-S5) against bin/aiseo and
+#   LLM-end smoke harness for AISEO Agent (Phase 1.5 + Phase 2 RC).
+#   Runs 32 prompts (6 buckets: S1-S6) against bin/aiseo and
 #   captures per-prompt .out (stdout) and .log (agent.log tail) for
 #   downstream grading by grade.py.
 #
 # Usage:
 #   AISEO_SMOKE_CONFIRMED=1 bash tests/aiseo_llm/runner/run_smoke.sh [bucket]
-#     bucket = s1 | s2 | s3 | s4 | s5 | all   (default: all)
+#     bucket = s1 | s2 | s3 | s4 | s5 | s6 | all   (default: all)
 #
 # Budget (full all-bucket run):
-#   ~180k tokens / ¥1-3 (deepseek-v4-pro tier) / ~25 min wall time.
+#   ~200k tokens / ¥1-3 (deepseek-v4-pro tier) / ~30 min wall time.
 #   See README.md for per-bucket breakdown and stop criteria.
 #
 # Safety:
@@ -66,7 +66,7 @@ fi
 # from typos / muscle memory / agent loops.
 if [ "${AISEO_SMOKE_CONFIRMED:-0}" != "1" ]; then
   cat >&2 <<'EOF'
-This will make ~28 real LLM calls and may cost ¥1-3 / 25 min wall time.
+This will make up to ~32 prompt attempts and may cost ¥1-3 / 30 min wall time.
 Set AISEO_SMOKE_CONFIRMED=1 to confirm and run:
 
   AISEO_SMOKE_CONFIRMED=1 bash tests/aiseo_llm/runner/run_smoke.sh [bucket]
@@ -111,11 +111,11 @@ case "$BUCKET" in
   all)
     PROMPT_FILES=( "$PROMPTS_DIR"/s*.md )
     ;;
-  s1|s2|s3|s4|s5)
+  s1|s2|s3|s4|s5|s6)
     PROMPT_FILES=( "$PROMPTS_DIR/${BUCKET}_"*.md )
     ;;
   *)
-    echo "ERROR: unknown bucket '$BUCKET' (expected: s1|s2|s3|s4|s5|all)" >&2
+    echo "ERROR: unknown bucket '$BUCKET' (expected: s1|s2|s3|s4|s5|s6|all)" >&2
     exit 1
     ;;
 esac
@@ -149,9 +149,9 @@ echo "Prompt files: ${PROMPT_FILES[*]}"
 extract_prompts() {
   local pf="$1"
   # Skip header (| ID |) and divider rows (|---|), keep data rows that begin
-  # with `| Sx-NN |` where x is 1..5 and NN is two digits.
+  # with `| Sx-NN |` where x is a bucket number and NN is two digits.
   awk -F'|' '
-    /^\| *S[1-5]-[0-9]{2} *\|/ {
+    /^\| *S[0-9]+-[0-9]{2} *\|/ {
       sid = $2
       prompt = $3
       cls = $4
