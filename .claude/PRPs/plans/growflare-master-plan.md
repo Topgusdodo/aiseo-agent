@@ -522,7 +522,7 @@ session DB、密钥。任何此类问题统一拒答：
 
 **不做**：
 - 实装 4 hook 内部规则（Phase 1）
-- 完整 SOUL.md 9 段（Phase 1）
+- 完整 SOUL.md 身份契约（Phase 1，最终落 8 段 98 行）
 - adversarial smoke pack（Phase 1）
 - 任何 skill body（Phase 1）
 
@@ -603,7 +603,7 @@ session DB、密钥。任何此类问题统一拒答：
 
 > **复杂度 L，~3 工作日**。Goal：
 > - 4 hook 内部规则全部实装；
-> - 完整 SOUL.md 9 段；
+> - 完整 SOUL.md 身份契约（最终交付 8 段 98 行）；
 > - 2 个 MVP skill body 写完；
 > - ≥20 条 adversarial smoke 分 4 桶全绿；
 > - 2 个 skill 各跑 3 个真实 URL e2e 验证。
@@ -626,7 +626,7 @@ session DB、密钥。任何此类问题统一拒答：
 ## 范围
 
 **做**：
-1. SOUL.md 补完到 9 段（按 SOUL_MD_AISEO_TEMPLATE；≤ 400 行）
+1. SOUL.md 补完到 8 段（D6-A8 后最终形态：§1 身份 / §2 skill / §3 域边界+Clarify / §4 Runtime confidentiality / §5 工具列表保密 / §6 网页内容隔离 / §7 报告输出 / §8 Memory；实测 98 行 ≪ 400 上限）
 2. 实装 InputGate（`pre_user_message` handler）：deterministic denylist（见 PLUGIN_TEMPLATE 中 `INPUT_DENYLIST_PATTERNS`，覆盖 prompt mining / secrets / local paths / jailbreak / explicit forbidden capabilities 五桶）
 3. 实装 ToolGate（`pre_tool_call` handler）：与 `agent.disabled_toolsets` 对齐做防御深度
 4. 实装 External Content Guard（`transform_tool_result` handler）：包装 `web_search` / `web_extract` / `browser_*` 返回内容为 `<untrusted_external_content>`
@@ -658,7 +658,7 @@ session DB、密钥。任何此类问题统一拒答：
 
 | # | Task | 依赖 | 估算 |
 |---|---|---|---|
-| 1 | 写 SOUL.md 完整 9 段；≤ 400 行；详细 SOP 推到 `references/` | Phase 0 | 3 h |
+| 1 | 写 SOUL.md 完整身份契约（最终 8 段 98 行）；≤ 400 行；详细 SOP 推到 `references/` | Phase 0 | 3 h |
 | 2 | 实装 InputGate `_input_gate`：5 桶 denylist 全部覆盖；测每条 pattern 命中预期输入 | Phase 0 | 4 h |
 | 3 | 实装 ToolGate `_tool_gate`：返回 canonical `{"action":"block","message":...}` | Phase 0 | 1 h |
 | 4 | 实装 External Content Guard `_external_content_guard`：包装 `web_search` / `web_extract` / `browser_*` | Phase 0 | 2 h |
@@ -747,7 +747,7 @@ session DB、密钥。任何此类问题统一拒答：
 
 ## Acceptance
 
-- [ ] SOUL.md 9 段齐全且 ≤ 400 行
+- [ ] SOUL.md 8 段齐全且 ≤ 400 行（D6-A8 后实测 98 行）
 - [ ] 4 hook handler 全部实装且单测覆盖
 - [ ] 2 个 SKILL.md 完整且单跑通过 3 个真实 URL
 - [ ] 跨 skill 路由不混淆
@@ -878,7 +878,7 @@ session DB、密钥。任何此类问题统一拒答：
   - `plugins/aiseo-guard/` 4 hook 注册可见于启动日志
   - chat 启动看到 "AISEO" 身份关键词
 - [ ] **Phase 1**：
-  - SOUL.md 9 段齐全且 ≤ 400 行
+  - SOUL.md 8 段齐全且实测 98 行（≤ 400 上限）
   - 4 hook handler 全实装;规则代码不含 hardcoded path（用常量/config）
   - 2 个 SKILL.md 完整且各跑 3 个真实 URL 通过
   - 跨 skill 路由不混淆
@@ -951,6 +951,6 @@ session DB、密钥。任何此类问题统一拒答：
 
 ---
 
-*Status: **READY-FOR-IMPLEMENT** — 3 Phase（0/1/2）；用户 `git clone` fork + `bin/aiseo` 即可落地*
+*Status: Phase 0/1/1.5 completed, Phase 2 pending — 3 Phase（0/1/2）；用户 `git clone` fork + `bin/aiseo` 即可落地*
 *Source authority: `docs/aiseo-agent/ARCHITECTURE.md`*
 *Source PRD: `.claude/PRPs/prds/growflare-seo-agent.prd.md`*

@@ -77,6 +77,12 @@ hermes update       # Update to the latest version
 hermes doctor       # Diagnose any issues
 ```
 
+AISEO profile shortcut for this fork:
+
+```bash
+uv run aiseo        # Equivalent to: hermes -p aiseo chat
+```
+
 📖 **[Full documentation →](https://hermes-agent.nousresearch.com/docs/)**
 
 ## CLI vs Messaging Quick Reference

@@ -305,7 +305,7 @@ plugins:
 **Feasibility：HIGH**。
 
 - `bin/aiseo`：bash 脚本约 30-50 行（首次启动 bootstrap + exec hermes）。
-- `plugins/aiseo-guard/`：Python 约 200-300 行（4 个 hook 函数 + deterministic 规则集 + regex 库）。
+- `plugins/aiseo-guard/`：Python 约 350 行（Phase 1 实测 352 行：4 hook 函数 + 17 InputGate regex + 33 ToolGate blocklist + 8 External Content Guard tools + 40 OutputGate regex + helper）。
 - `seeds/aiseo-profile/`：约 600-800 行 markdown（SOUL.md + 2 SKILL.md + memory seed + references + report templates）。
 - **Hermes core 改动**：约 20 行（`pre_user_message` 加入 `VALID_HOOKS` + 在 `run_agent.py:11967` invoke 之前调用）。
 
@@ -429,7 +429,7 @@ plugins:
 | # | Phase | Description | Status | Depends |
 |---|-------|-------------|--------|---------|
 | 0 | **Runtime seam + bootstrap skeleton** | 新增 `pre_user_message` hook 到 Hermes core；`bin/aiseo` thin wrapper 完成首次运行 bootstrap 逻辑；`plugins/aiseo-guard/` 骨架（注册 4 个 hook，规则可以最小）；`seeds/aiseo-profile/` 骨架（SOUL.md 占位、config.yaml 完整含 streaming=false + plugins.enabled + disabled_toolsets、占位 skill）；`--help` MVP 透传 | planning | - |
-| 1 | **MVP locked SEO agent** | 完整 `SOUL.md`（SEO 三位一体身份 + 域引导 + `<untrusted_external_content>` 教学 + 运行时保密软引导 + 跨 skill 调度引导）；2 个 SEO skill（`growflare-seo` + `keyword-opportunity`）；InputGate deterministic denylist 完整实装（4 桶模式各覆盖）；ToolGate `pre_tool_call` 完整规则；External Content Guard `transform_tool_result` 完整包裹逻辑；OutputGate `transform_llm_output` deterministic regex 库；`memories/` seed；`references/seo-audit-checklist.md` + 3 个 report 模板；≥ 20 条 adversarial smoke 全部通过预期处置 | planning | 0 |
+| 1 | **MVP locked SEO agent** | 完整 `SOUL.md`（8 段 98 行：身份 / skill 调度 / 域边界+Clarify / Runtime confidentiality / 工具列表保密 / 网页内容隔离 / 报告输出指针 / Memory）；2 个 SEO skill（`growflare-seo` + `keyword-opportunity`）；InputGate deterministic denylist 完整实装（4 桶模式各覆盖）；ToolGate `pre_tool_call` 完整规则；External Content Guard `transform_tool_result` 完整包裹逻辑；OutputGate `transform_llm_output` deterministic regex 库；`memories/` seed；`references/seo-audit-checklist.md` + 3 个 report 模板；≥ 20 条 adversarial smoke 全部通过预期处置 | planning | 0 |
 | 2 | **产品能力扩展** | 追加 4 个 skill（`technical-seo-audit` / `content-brief` / `competitor-analysis` / `seo-weekly-report`）；3-5 个 `cron/*.json` 模板；branded `aiseo --help` 拦截输出 AISEO 风格帮助；stream gate 实装后开启 streaming；e2e SEO 质量测试（5-10 真实 URL，主观打分 P50 ≥ 4/5）；`references/installation-guide.md`（含四层概念图解 + `cron create` 三步教程） | planning | 1 |
 
 ### Phase Details

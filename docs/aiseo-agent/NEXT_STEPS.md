@@ -1,6 +1,6 @@
 # AISEO Agent — 接下来你要做什么
 
-> Phase 0 已经写完代码、跑通测试、验过 5 道 gate。
+> Phase 0 / Phase 1 / Phase 1.5 已完成（runtime seam + 4 道 guard 真规则 + 28 条 LLM smoke 验证 + 0 真安全泄漏），Phase 2 pending（4 新 skill + cron + branded help + stream gate）。
 > 下面这 3 件事是 **你** 要做的。每件事都给了直接能复制的命令。
 
 ---
@@ -119,7 +119,7 @@ PATH="$PWD:$PATH" uv run bin/aiseo
 
 **期望看到**：回复里含 "AISEO" 关键词（来自 SOUL.md 身份段）。
 
-> ⚠️ Phase 0 的 SOUL.md 是占位版本（只有 4 段）。Phase 1 才扩到完整 9 段，所以现在回复可能比较"骨架"。**只要含 AISEO 身份就算通过。**
+> Phase 0 的 SOUL.md 是占位版本（4 段，27 行）。Phase 1 实装时初版扩到 9 段 141 行；经两轮压缩（删 §6 工具规范段下沉到 SKILL.md / 删 §3a 教学型）+ D6-A8 加密反 codify，最终落到 **8 段 98 行**（详见 Phase 1 report D6-A5/A8 决策）。
 
 ### 1.5 验证非 SEO 请求被软拒答
 
@@ -180,11 +180,11 @@ git branch -D feat/aiseo-phase0   # 删掉这个分支，工作全丢
 
 ## 第 3 步 — 进入 Phase 1（约 3 工作日）
 
-Phase 0 是骨架，Phase 1 才是 **真正能用的 AISEO Agent**：
+Phase 0 是骨架（runtime seam + bootstrap），Phase 1 + 1.5 已交付完整可用的 MVP：4 道 guard 真规则（InputGate 17 / ToolGate 33 / OutputGate 40 / External Content Guard 8）+ 2 完整 SEO skill + 70 deterministic pytest + 31 条 LLM-end smoke（27 PASS / 0 真安全泄漏）。下一步：Phase 2（4 新 skill + cron 模板 + branded help + stream gate）+ 修 4 条 P2-B backlog（详见 .claude/PRPs/reports/growflare-master-plan-phase1-report.md "Phase 2 Backlog" 节）。
 
 | Phase 1 要做的事 | 影响 |
 |---|---|
-| 写 SOUL.md 完整 9 段 | 身份/边界/保密变完整 |
+| 写 SOUL.md 完整 8 段（D6-A8 后实测 98 行） | 身份/边界/保密变完整 |
 | 实装 InputGate denylist（5 类） | 真拦截 jailbreak / prompt mining |
 | 实装 OutputGate regex 脱敏 | 真过滤 API key / 路径 / stack trace |
 | 实装 External Content Guard | 真包装 web_extract 结果防注入 |
