@@ -24,15 +24,19 @@
 > 所以 `bin/aiseo` 首次启动后必须**在 aiseo profile 里也跑一次 setup**：
 >
 > ```bash
-> PATH="$PWD:$PATH" uv run ./hermes -p aiseo setup
+> PATH="$PWD:$PATH" uv run bin/aiseo setup
 > ```
 >
 > 或者快捷方式：把 default profile 的 `.env` 复制过去再选模型：
 >
 > ```bash
 > cp ~/.hermes/.env ~/.hermes/profiles/aiseo/.env
-> PATH="$PWD:$PATH" uv run ./hermes -p aiseo model    # 选 deepseek-v4-pro
+> PATH="$PWD:$PATH" uv run bin/aiseo model    # 选 deepseek-v4-pro
 > ```
+>
+> *Wrapper Route B（2026-05-14 hotfix 起）：`bin/aiseo` 无参进 chat、有参直接
+> 透传子命令，所以 `aiseo setup` / `aiseo model` / `aiseo tools` 等都等价于
+> 旧写法 `hermes -p aiseo <sub>`，无需再敲 `-p aiseo`。*
 
 ---
 
@@ -46,7 +50,7 @@
 跑：
 
 ```bash
-PATH="$PWD:$PATH" uv run ./hermes -p aiseo tools
+PATH="$PWD:$PATH" uv run bin/aiseo tools
 ```
 
 在 checklist 里**至少勾上**：
@@ -104,7 +108,7 @@ PATH="$PWD:$PATH" uv run bin/aiseo
 
 ```
 [aiseo] First run — bootstrapping profile at /Users/topgus/.hermes/profiles/aiseo ...
-[aiseo] Profile ready. Run 'hermes setup' if you have not configured a provider yet.
+[aiseo] Profile ready. Run 'aiseo setup' if you have not configured a provider yet.
 ```
 
 然后进入 hermes chat。
@@ -211,8 +215,9 @@ Phase 0 是骨架（runtime seam + bootstrap），Phase 1 + 1.5 已交付完整�
 
 ### Q2: `bin/aiseo` 跑出来说 `hermes: command not found`
 
-`bin/aiseo` 最后一行是 `exec hermes -p aiseo chat`，需要 `hermes` 在 PATH 里。
-仓库根有 `./hermes` 脚本但 PATH 里没装。
+`bin/aiseo` 是 thin wrapper：自动注入 `-p aiseo` profile，走 Route B
+路由（无参进 chat，有参透传子命令）；最终 `exec` 底层 `hermes` runtime，
+需要 `hermes` 在 PATH 里。仓库根有 `./hermes` 脚本但 PATH 里没装。
 
 **临时方案**（已写在第 1.3 步）：
 ```bash

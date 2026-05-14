@@ -80,7 +80,8 @@ hermes doctor       # Diagnose any issues
 AISEO profile shortcut for this fork:
 
 ```bash
-uv run aiseo        # Equivalent to: hermes -p aiseo chat
+uv run aiseo              # No args: starts chat on the aiseo profile
+uv run aiseo setup        # Any subcommand passes through (Route B; equivalent to hermes -p aiseo setup)
 ```
 
 📖 **[Full documentation →](https://hermes-agent.nousresearch.com/docs/)**

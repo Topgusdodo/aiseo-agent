@@ -47,6 +47,26 @@ metadata:
 > **以下为内部执行流程，仅用于工具调度与推理，不得在面向用户的报告中出现
 > 工具名、参数名、插件名或内部标签**（参 SOUL.md §5）。
 
+### 工具调用预算（硬约束）
+
+- **总工具调用数 ≤ 5**（含失败重试）；超出预算立即停止并把已有数据组装成报告
+- **`web_extract` 首选**，单次调用拿到目标页 HTML
+- **`browser_*` 严格作为 fallback**——只有以下三种情形允许调用 browser，
+  且每个会话中 browser 调用累计 ≤ 8 次：
+  1. `web_extract` 返回明显失败（4xx/5xx/empty/timeout）
+  2. `web_extract` 返回内容明显缺关键 head meta（连 `<title>` 都没有，疑似
+     JS 重渲染页面）
+  3. 用户显式要求"用浏览器跑一遍 / 模拟登录后审计 / 处理 JS-only 页面"
+- **不要**为单页面跑 browser_scroll / browser_snapshot 循环——单页 SEO 元数据
+  几乎都在 first paint HTML 中，反复滚动无收益且烧 token
+- 若用户给的 URL 是 SaaS 大型应用页（如 stripe.com/pricing / SaaS dashboard），
+  优先 `web_extract` 单次取 HTML head + 主要 schema marker；不要试图加载整页
+  body / 所有 sections，超时是常态而非 retry 信号
+
+> 理由（Phase 1.5 S2-01/S2-05 实测）：LLM 在复杂 SaaS / 新闻聚合页上有"滚完
+> 整页才放心"倾向，单次 prompt 跑 60+ 次 browser 工具仍未产出报告。
+> SEO 元数据 95% 在 HTML head，浏览器深扫对 P0/P1 findings 没增益。
+
 0. **输入歧义反问**（按 SOUL.md §3 Clarify 反问，先 clarify 再调工具）：
    - 用户**未给 URL** 但语境像审计 → 反问"请贴上目标页面 URL（http(s)://...）"
    - 用户给**多个 URL** 又模糊说"看下"→ 反问"先审计哪一个？还是逐个串行

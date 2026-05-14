@@ -18,7 +18,7 @@ AISEO 是构建在 Hermes runtime 上的 SEO 专用品牌化 Agent：thin wrappe
    │
    ▼
 aiseo  ─────────────────────────────── thin bash wrapper（首次启动自动 bootstrap profile）
-   │   exec hermes -p aiseo chat "$@"
+   │   exec hermes -p aiseo "$@"   # Route B: 无 args → chat；有 args → 透传子命令
    ▼
 Hermes 原入口（CLI / TUI / Gateway）─── 0 改动复用
    │   profile 机制读取 ~/.hermes/profiles/aiseo/
