@@ -241,7 +241,7 @@ run_one() {
         exit 124;
       }
     ' "$PER_PROMPT_TIMEOUT" \
-      "$AISEO_BIN" -q "$prompt" --quiet \
+      "$AISEO_BIN" chat -q "$prompt" --quiet \
       >"$out_path" 2>>"$log_path"
     rc=$?
     set -e
