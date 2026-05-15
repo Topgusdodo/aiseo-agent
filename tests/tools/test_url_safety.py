@@ -186,6 +186,51 @@ class TestIsSafeUrl:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name resolution failed")):
             assert is_safe_url("https://multimedia.nt.qq.com.cn/download?id=123") is False
 
+    # ── SEO tool suffix allow-list (benchmark-IP retry-storm fix) ──
+
+    @pytest.mark.parametrize("url", [
+        "https://ahrefs.com/blog",
+        "https://www.ahrefs.com/seo/",
+        "https://blog.ahrefs.com/post",
+        "https://semrush.com/",
+        "https://www.semrush.com/dashboard",
+        "https://similarweb.com/",
+        "https://www.moz.com/learn",
+        "https://backlinko.com/hub",
+        "https://seo.do/",
+        "https://detailed.com/",
+        "https://www.searchenginejournal.com/",
+    ])
+    def test_seo_suffix_hosts_allowed_with_benchmark_ip(self, url):
+        """Public SEO tool sites that mis-resolve to 198.18.x.x must NOT
+        be blocked — they triggered a 180s retry storm in U9."""
+        with patch("socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("198.18.0.23", 0)),
+        ]):
+            assert is_safe_url(url) is True, f"{url} should be allowed"
+
+    def test_seo_suffix_does_not_match_lookalike(self):
+        """``fakeahrefs.com`` must NOT be accidentally trusted by the suffix
+        match — only apex / true subdomains are allowed."""
+        with patch("socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("198.18.0.23", 0)),
+        ]):
+            assert is_safe_url("https://fakeahrefs.com/") is False
+
+    def test_seo_suffix_requires_https(self):
+        """HTTP scheme must NOT get the bypass — keeps the security floor."""
+        with patch("socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("198.18.0.23", 0)),
+        ]):
+            assert is_safe_url("http://ahrefs.com/blog") is False
+
+    def test_seo_suffix_still_blocks_metadata_ip(self):
+        """Even a trusted SEO host must NOT bypass cloud-metadata blocking."""
+        with patch("socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("169.254.169.254", 0)),
+        ]):
+            assert is_safe_url("https://ahrefs.com/spoofed") is False
+
 
 class TestIsBlockedIp:
     """Direct tests for the _is_blocked_ip helper."""

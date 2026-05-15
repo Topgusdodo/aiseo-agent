@@ -63,6 +63,38 @@ _TRUSTED_PRIVATE_IP_HOSTS = frozenset({
     "multimedia.nt.qq.com.cn",
 })
 
+# HTTPS public-internet domains whose apex / subdomains may resolve to
+# benchmark-range IPs (198.18.0.0/15) on certain test/captive networks even
+# though they are legitimate public web targets. Suffix-matched: an entry
+# ``ahrefs.com`` matches ``ahrefs.com``, ``www.ahrefs.com``, ``blog.ahrefs.com``.
+#
+# Only relaxes IP-class blocking for these hosts when scheme==https. Cloud
+# metadata sentinels (169.254.169.254, ::ffff:169.x, metadata.google.internal,
+# ECS task creds, CGNAT etc.) remain always-blocked.
+#
+# Rationale: the LLM observed seeing benchmark-IP resolutions for public SEO
+# reference sites (ahrefs/semrush/similarweb/moz/backlinko/detailed/seo.do)
+# and retried web_extract until session-timeout (180s) — a retry storm with
+# zero output. Allow-listing the well-known public SEO tool surfaces breaks
+# the retry loop on networks that mis-resolve them.
+_TRUSTED_PRIVATE_IP_SUFFIXES = (
+    "ahrefs.com",
+    "semrush.com",
+    "similarweb.com",
+    "moz.com",
+    "backlinko.com",
+    "seo.do",
+    "detailed.com",
+    "searchenginejournal.com",
+    "searchengineland.com",
+    "neilpatel.com",
+    "ubersuggest.com",
+    "majestic.com",
+    "spyfu.com",
+    "screamingfrog.co.uk",
+    "sistrix.com",
+)
+
 # 100.64.0.0/10 (CGNAT / Shared Address Space, RFC 6598) is NOT covered by
 # ipaddress.is_private — it returns False for both is_private and is_global.
 # Must be blocked explicitly. Used by carrier-grade NAT, Tailscale/WireGuard
@@ -243,9 +275,27 @@ def is_always_blocked_url(url: str) -> bool:
         return False
 
 
+def _matches_trusted_suffix(hostname: str) -> bool:
+    """Return True when hostname equals or is a subdomain of a trusted suffix."""
+    for suffix in _TRUSTED_PRIVATE_IP_SUFFIXES:
+        if hostname == suffix or hostname.endswith("." + suffix):
+            return True
+    return False
+
+
 def _allows_private_ip_resolution(hostname: str, scheme: str) -> bool:
-    """Return True when a trusted HTTPS hostname may bypass IP-class blocking."""
-    return scheme == "https" and hostname in _TRUSTED_PRIVATE_IP_HOSTS
+    """Return True when a trusted HTTPS hostname may bypass IP-class blocking.
+
+    Trust is granted to:
+      - Exact matches in ``_TRUSTED_PRIVATE_IP_HOSTS`` (e.g. QQ media CDN)
+      - Apex / subdomain matches against ``_TRUSTED_PRIVATE_IP_SUFFIXES``
+        (e.g. ahrefs.com, www.ahrefs.com, blog.ahrefs.com)
+    """
+    if scheme != "https":
+        return False
+    if hostname in _TRUSTED_PRIVATE_IP_HOSTS:
+        return True
+    return _matches_trusted_suffix(hostname)
 
 
 def is_safe_url(url: str) -> bool:
