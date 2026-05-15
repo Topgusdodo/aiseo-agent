@@ -185,6 +185,21 @@ def test_tg_passthrough_clarify(aiseo_guard):
     assert result is None, f"clarify must passthrough, got {result!r}"
 
 
+def test_tg_blocks_generic_cronjob_but_allows_aiseo_scheduler(aiseo_guard):
+    """AISEO may schedule SEO reports, but generic cronjob remains blocked."""
+    assert _is_block(aiseo_guard._tool_gate("cronjob", {"action": "create"}))
+    result = aiseo_guard._tool_gate(
+        "aiseo_schedule_task",
+        {"site_url": "https://example.com"},
+    )
+    assert result is None, f"aiseo_schedule_task must passthrough, got {result!r}"
+    result = aiseo_guard._tool_gate(
+        "aiseo_manage_scheduled_tasks",
+        {"action": "list"},
+    )
+    assert result is None, f"aiseo_manage_scheduled_tasks must passthrough, got {result!r}"
+
+
 # ---------------------------------------------------------------------------
 # A4 / C3 — OutputGate must mirror agent/redact.py vendor PAT prefixes
 # ---------------------------------------------------------------------------

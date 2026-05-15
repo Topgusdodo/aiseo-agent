@@ -1,8 +1,53 @@
-# AISEO Cron 模板使用指南
+# AISEO 定时 SEO 任务使用指南
 
-> 本目录的 JSON 文件**仅作业意图参考**——它们不会被 `hermes cron create` 自动
-> 读取。`hermes cron create` 是 positional-args CLI，需要按下面的命令手动注册。
-> JSON 字段名与 CLI flag 一一对应，方便复制粘贴。
+> 面向客户时，推荐直接在 AISEO 对话里创建和管理定时 SEO 任务。客户不需要执行
+> CLI 命令。下面的 JSON 文件仍保留为高级/迁移场景的模板参考。
+
+## 推荐方式：对话式创建
+
+客户可以直接说：
+
+```text
+每天早上 9 点检查 https://example.com 的站点健康，并把结果发回当前对话。
+每周一 8 点对 https://example.com 做一次技术 SEO 审计。
+每周监控 https://example.com 和 https://example.org、https://example.net 的竞品 SEO。
+每月生成关键词 "AI SEO tools" 的内容简报。
+```
+
+AISEO 会创建受限的 SEO 定时任务：只接受结构化 SEO 字段，不接受任意 prompt、
+脚本、workdir、投递平台、模型或工具集配置。通用 `cronjob` 在 AISEO profile 中
+仍然禁用；对话里开放的是 AISEO 专用的安全调度能力。
+
+| 对话任务类型 | 需要的信息 | 默认周期 |
+|---|---|---|
+| 站点健康检查 | 站点 URL | 每日 |
+| 技术 SEO 审计 | 站点 URL | 每周 |
+| 单页 SEO 审计 | 页面 URL | 每周 |
+| 关键词机会扫描 | 关键词或站点 URL | 每周 |
+| 竞品 SEO 监控 | 用户站点 + 至少 2 个竞品 | 每周 |
+| 内容简报 | 目标关键词 | 每周 |
+| SEO 周期 delta 报告 | 站点 URL | 每周 |
+
+## 对话式管理
+
+客户也可以直接说：
+
+```text
+列出我的 SEO 定时任务。
+查看这个任务 <job_id>。
+暂停任务 <job_id>。
+恢复任务 <job_id>。
+删除任务 <job_id>，我确认删除。
+```
+
+管理能力只作用于 AISEO 对话式创建、且当前会话来源可见的 SEO 任务。查看任务时
+只返回安全摘要，不暴露内部 prompt。删除必须有明确确认。
+
+## 高级方式：CLI 模板
+
+本目录的 JSON 文件**仅作业意图参考**——它们不会被 `hermes cron create` 自动
+读取。`hermes cron create` 是 positional-args CLI，需要按下面的命令手动注册。
+JSON 字段名与 CLI flag 一一对应，方便开发/迁移时复制粘贴。
 
 ## CLI 字段映射
 
@@ -110,6 +155,10 @@ Hermes 当前的 cron 子系统**需要用户显式运行**（如 cron daemon �
 
 | 现象 | 检查 |
 |---|---|
+| 对话里无法创建任务 | 确认任务属于 SEO 白名单，并提供了必要 URL / 关键词 / 竞品 / 时间 |
+| 提示不支持字段 | 不要要求脚本、任意 prompt、workdir、指定投递平台、模型、工具集或非 SEO 自动化 |
+| 列表看不到任务 | 只显示当前会话来源可见、由 AISEO 对话式创建的任务；CLI 手工创建或其他会话来源的任务可能不会显示 |
+| 删除失败 | 删除必须提供 job ID 且明确确认 |
 | 作业 dispatch 但 LLM 0 工具调用 | MEMORY.md 缺主站点/关键词；按 prompt 中的"ask the user"分支跳过了 |
 | cron 跑出 "Configuration Missing" / agent 反问 MEMORY 信息 | runtime agent 没 file/memory tool，读不到 `MEMORY.md` 字样的 prompt。检查 MEMORY.md 对应 section 是否填好；推荐用 `aiseo cron create-from-memory <skill>` 自动注入实值，绕过运行时读 MEMORY 的失败路径 |
 | `--deliver telegram` 报错 / 静默丢消息 | messaging toolset 已禁；改 `local` 或 `origin` |

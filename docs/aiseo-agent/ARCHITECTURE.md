@@ -61,6 +61,26 @@ OutputGate 现在还会把最终用户报告中的内部工具标识符改写为
 `web_search` → `实时检索`，`web_extract` → `页面抓取`，`browser*` → `抓取回退路径`。
 S3-06 剩余问题是 grading contract：安全拒绝且无路径泄漏是否算通过，或是否必须强制产生 `[REDACTED_*]` sentinel 来证明 OutputGate 执行。
 
+### 4.2 对话式 SEO 定时任务（客户侧）
+
+AISEO profile 启用两个专用调度工具集：`aiseo_schedule_task` 与
+`aiseo_manage_scheduled_tasks`。通用 `cronjob` toolset 仍在
+`agent.disabled_toolsets` 中禁用，并由 ToolGate 继续兜底拦截。
+
+设计意图：客户可以在对话中创建和管理 SEO 周期任务，但不会获得通用自动化能力。
+
+- `aiseo_schedule_task` 是 narrow cron wrapper，只允许固定 SEO task type：
+  站点健康检查、技术 SEO 审计、单页 SEO 审计、关键词机会、竞品监控、内容简报、
+  SEO delta 报告。
+- 调度参数只接受结构化字段（URL / 页面 / 关键词 / 竞品 / daily|weekly|monthly /
+  HH:MM / 语言等），不接受任意 prompt。
+- 明确拒绝 `script`、`workdir`、`deliver`、`model`、`provider`、`toolsets`、
+  `skills`、`no_agent`、`context_from` 等通用 cron 参数。
+- 创建出的 job 固定绑定对应 AISEO skill，且 `enabled_toolsets` 固定为
+  `["web", "search", "browser"]`。
+- `aiseo_manage_scheduled_tasks` 只管理由 AISEO 创建、且当前会话 origin 可见的任务；
+  支持 list/view/pause/resume/delete，删除必须确认，view/list 不返回内部 prompt。
+
 ## 5. Hermes Core 改动账单
 
 总账：1 个新 hook，约 20 行。

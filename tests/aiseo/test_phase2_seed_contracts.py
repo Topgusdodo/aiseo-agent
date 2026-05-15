@@ -173,6 +173,15 @@ def test_cron_readme_present():
     assert (CRON_DIR / "README.md").exists()
 
 
+def test_aiseo_profile_enables_safe_scheduler_not_generic_cronjob():
+    """AISEO chat can schedule SEO reports without exposing generic cronjob."""
+    body = (SEED_ROOT / "config.yaml").read_text()
+    assert "  - aiseo_schedule_task" in body
+    assert "  - aiseo_manage_scheduled_tasks" in body
+    disabled_block = body.split("disabled_toolsets:", 1)[1]
+    assert "    - cronjob" in disabled_block
+
+
 @pytest.mark.parametrize("json_path", sorted(CRON_DIR.glob("*.json")))
 def test_cron_template_deliver_not_messaging(json_path: Path):
     """Plan §829 — `deliver` must not invoke the messaging toolset.

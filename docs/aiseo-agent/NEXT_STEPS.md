@@ -6,6 +6,13 @@
 > **2026-05-15 RC validation update**：Phase 2 product surface is feature-complete, but full LLM smoke is still **FAIL**.
 > Latest full run: `tests/aiseo_llm/results/2026-05-15-1315/report.md`.
 > Passing buckets: **S1 / S4 / S5**. Remaining blockers: **S2**, **S6**, and **S3-06**.
+>
+> **2026-05-15 scheduling update**：客户侧对话式 SEO 定时任务已落地。AISEO chat
+> 通过专用能力创建 `site_health_check` / `technical_audit` / `page_audit` /
+> `keyword_opportunity` / `competitor_monitoring` / `content_brief` /
+> `seo_delta_report`，并支持对话式 list / view / pause / resume / delete。
+> 通用 `cronjob` 仍禁用；脚本、workdir、任意投递、任意 prompt、模型和工具集覆盖
+> 均不开放。
 
 ## 当前 RC Blockers（按优先级）
 
@@ -29,6 +36,12 @@
 ```bash
 # deterministic regression
 scripts/run_tests.sh tests/aiseo/
+
+# scheduled task contract
+scripts/run_tests.sh tests/aiseo/test_aiseo_schedule_task.py \
+  tests/aiseo/test_aiseo_manage_scheduled_tasks.py \
+  tests/aiseo/test_tool_gate_whitelist.py \
+  tests/aiseo/test_phase2_seed_contracts.py
 
 # focused smoke: historical failures + Phase 2 bucket
 AISEO_SMOKE_TIMEOUT=60 AISEO_SMOKE_RETRIES=2 bash scripts/run_targeted_smoke.sh

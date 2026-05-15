@@ -29,6 +29,8 @@ toolsets:
   - web
   - search
   - browser
+  - aiseo_schedule_task
+  - aiseo_manage_scheduled_tasks
 
 display:
   streaming: false                      # D15 default off (Phase 1 OutputGate
