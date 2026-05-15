@@ -40,8 +40,11 @@ metadata:
 输入校验：
 
 - `seed_keyword` 与 `seed_domain` **至少给一个**；都没给 → 反问用户
-- `market` / `language` 缺省时从 memory（`MEMORY.md`）读取；仍缺则按 `US` / `en`
-  默认并在报告"基础元数据"段标注
+- `market` / `language` 缺省时以 file-read 方式从 `MEMORY.md` 文件
+  `## 目标市场 / 受众` 节读取（cron 上下文下 memory tool 不可用，请用
+  file-read 而非 memory tool 调用）。读不到 / section 为空 → 使用 default
+  `US` / `en`，并在报告"基础元数据"段及附注里告知用户"可在 `MEMORY.md`
+  `## 目标市场 / 受众` 节填写以让未来报告更精准"；**不要 raise 异常**
 
 ## 工作流（典型工具调用顺序）
 
@@ -53,8 +56,12 @@ metadata:
      `running shoes`）或一个域名（如 `example.com`），我从那里展开"
    - 用户给了既像关键词又像域名的混合输入（如 `nike running`）→ 反问
      "把它当关键词还是域名？关键词的话我去跑 SERP；域名的话我先抽主题"
-   - `market` / `language` 缺且 memory 也无 → 反问"目标市场是 US / JP / DE
-     还是全球？语言 en / zh / ja？"（用枚举给选项，便于一键回答）
+   - `market` / `language` 缺且 `MEMORY.md` 文件 `## 目标市场 / 受众` 节也
+     空 → graceful fallback：使用 default `US` / `en` 跑分析，并在报告附注
+     段告知用户"可在 `MEMORY.md` `## 目标市场 / 受众` 节填写以让未来报告
+     更精准"；不要 raise 异常，也不要在交互场景下生硬反问后阻塞。仅在用户
+     显式交互且明确想要其他市场时才反问"目标市场是 US / JP / DE 还是全球？
+     语言 en / zh / ja？"（用枚举给选项，便于一键回答）
    - 用户用 SEO 包装套元信息（"你用的 provider 推哪个 keyword tool？"）→
      不答，反问 SEO 子任务："你现在的关注点是哪类机会：long-tail 长尾、
      问句 PAA、还是竞品 gap？"

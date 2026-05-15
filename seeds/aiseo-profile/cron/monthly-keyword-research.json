@@ -2,6 +2,8 @@
   "name": "aiseo-monthly-keyword-research",
   "schedule": "0 10 1 * *",
   "prompt": "Run keyword-opportunity for the top keyword from MEMORY.md '## 关注关键词' section (seed_keyword = first entry). Use market and language from MEMORY.md '## 目标市场 / 受众' (default US/en if absent). Produce the 3-section opportunity report. If MEMORY.md has no tracked keyword, ask the user and skip this run.",
+  "prompt_template": "Run keyword-opportunity for seed_keyword='{top_keyword}', market={market}, language={language}. Produce the 3-section opportunity report.",
+  "memory_fields": ["top_keyword", "market", "language"],
   "skill": ["keyword-opportunity"],
   "deliver": "local",
   "_aiseo_notes": {

@@ -253,3 +253,74 @@ def test_bin_aiseo_routes_no_args_to_chat_and_args_to_subcommands():
     assert "-p aiseo chat" in wrapper
     assert '-p aiseo "$@"' in wrapper
     assert '-p aiseo chat "$@"' not in wrapper
+
+
+# ---------------------------------------------------------------------------
+# Bug #2 — SKILL.md phrasing must not mislead the agent into calling
+# a `memory` tool (which Hermes disables in cron contexts via
+# `skip_memory=True` at hermes/cron/scheduler.py:1453). The skill's intent
+# is file-read on `MEMORY.md`; every "memory" reference must be qualified
+# as either `MEMORY.md`, `memory tool` (with explicit unavailability note),
+# or the `memories/MEMORY.md` filesystem path.
+# ---------------------------------------------------------------------------
+
+
+def test_seo_weekly_report_skill_avoids_memory_tool_phrasing():
+    """seo-weekly-report SKILL.md must say MEMORY.md file-read, not bare memory."""
+    import re
+
+    body = (SKILLS_DIR / "seo-weekly-report" / "SKILL.md").read_text()
+    # Positive: explicit file-read / file-write wording must be present.
+    # Accept either bare 'MEMORY.md 文件' or Markdown-quoted '`MEMORY.md` 文件'.
+    assert "MEMORY.md` 文件" in body or "MEMORY.md 文件" in body, (
+        "SKILL.md must say 'MEMORY.md 文件' so the agent treats it as a file path"
+    )
+    assert "file-read" in body, "SKILL.md must explicitly say 'file-read'"
+    assert "file write" in body, "SKILL.md must explicitly say 'file write'"
+    # Negative: every bare 'memory' token must be qualified. Forbidden patterns
+    # are action verbs that an LLM would interpret as a tool invocation, e.g.
+    # '读 memory' or '写 ... memory' without any of {.md, tool, 文件}.
+    action_matches = re.findall(
+        r"(?:读|写|访问|查询)[^\n]{0,30}memory[^\n]{0,30}",
+        body,
+    )
+    real_violations = [
+        m for m in action_matches
+        if "MEMORY.md" not in m
+        and "memory tool" not in m
+        and "memories/" not in m
+        and '"memory"' not in m
+    ]
+    assert not real_violations, (
+        f"SKILL.md still has tool-invocation-style memory phrasing: {real_violations}"
+    )
+
+
+def test_seo_weekly_report_skill_warns_cron_memory_unavailable():
+    """seo-weekly-report SKILL.md must warn cron disables the memory tool."""
+    body = (SKILLS_DIR / "seo-weekly-report" / "SKILL.md").read_text()
+    assert "cron 上下文" in body, (
+        "SKILL.md must call out the cron context where memory tool is gated"
+    )
+    assert "memory tool" in body, (
+        "SKILL.md must name 'memory tool' so the agent knows what NOT to call"
+    )
+    assert "不可用" in body or "禁用" in body, (
+        "SKILL.md must say the memory tool is unavailable/disabled under cron"
+    )
+
+
+def test_keyword_opportunity_skill_has_graceful_memory_fallback():
+    """keyword-opportunity SKILL.md must default to US/en when memory missing."""
+    body = (SKILLS_DIR / "keyword-opportunity" / "SKILL.md").read_text()
+    assert "default" in body and "`US`" in body and "`en`" in body, (
+        "keyword-opportunity SKILL.md must specify default US/en fallback"
+    )
+    assert "MEMORY.md" in body and "## 目标市场" in body, (
+        "keyword-opportunity SKILL.md must tell user to fill MEMORY.md "
+        "## 目标市场 section to get better future reports"
+    )
+    assert "不要 raise 异常" in body or "graceful" in body, (
+        "keyword-opportunity SKILL.md must instruct graceful fallback, "
+        "not raise exception, when MEMORY.md section is empty"
+    )

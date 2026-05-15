@@ -2,6 +2,8 @@
   "name": "aiseo-weekly-audit",
   "schedule": "0 8 * * 1",
   "prompt": "Run seo-weekly-report on the primary site stored in MEMORY.md. Produce the 3-section delta report (current snapshot / changes vs last / next actions). If MEMORY.md has no primary site, ask the user to set one and skip this run.",
+  "prompt_template": "Run seo-weekly-report on {primary_site}. Produce the 3-section delta report (current snapshot / changes vs last / next actions).",
+  "memory_fields": ["primary_site"],
   "skill": ["seo-weekly-report"],
   "deliver": "local",
   "_aiseo_notes": {

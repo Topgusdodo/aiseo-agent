@@ -2,6 +2,8 @@
   "name": "aiseo-quarterly-competitor-watch",
   "schedule": "0 10 1 */3 *",
   "prompt": "Run competitor-analysis with user_url = primary site from MEMORY.md and competitor_urls = first 3 entries from MEMORY.md '## 主要竞品'. Use focus=all. Produce the 3-section comparison report with delta matrix. If MEMORY.md has < 2 competitors set, ask the user and skip this run.",
+  "prompt_template": "Run competitor-analysis with user_url={user_site} and competitor_urls=[{competitor_urls}]. Use focus=all. Produce the 3-section comparison report with delta matrix.",
+  "memory_fields": ["user_site", "competitor_urls"],
   "skill": ["competitor-analysis"],
   "deliver": "local",
   "_aiseo_notes": {

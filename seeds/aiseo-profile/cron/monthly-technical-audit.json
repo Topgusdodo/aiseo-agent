@@ -2,6 +2,8 @@
   "name": "aiseo-monthly-technical-audit",
   "schedule": "0 9 1 * *",
   "prompt": "Run technical-seo-audit on the primary site stored in MEMORY.md (site_root = primary site origin). Use focus=all and sample_pages=3. Produce the 3-section technical audit report. If MEMORY.md has no primary site, ask the user and skip this run.",
+  "prompt_template": "Run technical-seo-audit on {primary_site} (site_root = primary site origin). Use focus=all and sample_pages=3. Produce the 3-section technical audit report.",
+  "memory_fields": ["primary_site"],
   "skill": ["technical-seo-audit"],
   "deliver": "local",
   "_aiseo_notes": {
