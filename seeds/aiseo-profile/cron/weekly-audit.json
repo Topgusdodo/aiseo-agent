@@ -10,6 +10,6 @@
     "purpose": "weekly delta — current vs last snapshot for the user's primary SEO-tracked site",
     "tool_budget": "<= 5 web_extract calls; 0 browser calls expected",
     "cost_estimate": "1-2k tokens per run (no full-site sample)",
-    "deliver_choice_rationale": "local writes job stdout to ~/.hermes/cron/output/ — no messaging toolset involved (messaging is in agent.disabled_toolsets)"
+    "deliver_choice_rationale": "local writes job stdout to the local cron output directory — no messaging toolset involved (messaging is in agent.disabled_toolsets)"
   }
 }

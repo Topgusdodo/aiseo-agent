@@ -333,3 +333,98 @@ def test_keyword_opportunity_skill_has_graceful_memory_fallback():
         "keyword-opportunity SKILL.md must instruct graceful fallback, "
         "not raise exception, when MEMORY.md section is empty"
     )
+
+
+# ---------------------------------------------------------------------------
+# LLM-context seed files: hermes-leak prevention (防回归)
+# ---------------------------------------------------------------------------
+#
+# Goal: any seed asset the LLM reads as prompt context (SOUL.md, SKILL.md
+# prose, cron prompt/prompt_template) MUST NOT contain the literal "hermes" so
+# the AISEO Agent doesn't accidentally echo the internal framework name.
+#
+# Intentional exceptions (these matches are OK):
+#   - YAML metadata key ``  hermes:`` in skill front-matter (loader schema
+#     field name, never echoed by the LLM).
+#   - The explicit absolute path ``~/.hermes/profiles/aiseo/memories/MEMORY.md``
+#     in SKILL.md step 1/4, marked "tool call parameter only / not in
+#     user-facing report" — Phase 3 will lift this into a runtime-injected
+#     <system_context> block; for now the soft constraint is sufficient.
+#
+# Out-of-scope (NOT checked by this test):
+#   - cron/README.md, config.yaml — dev-facing docs, not LLM context.
+#   - cron/*.json ``_aiseo_notes`` object — dev metadata only.
+
+import re
+
+_HERMES_PATTERN = re.compile(r"hermes", re.IGNORECASE)
+_SKILL_METADATA_KEY_RE = re.compile(r"^\s*hermes:\s*$")
+_APPROVED_PATH_RE = re.compile(r"~/\.hermes/profiles/aiseo/memories/MEMORY\.md")
+
+
+def _hermes_hits(text: str) -> list[tuple[int, str]]:
+    """Return ``(line_number, line_text)`` for every line containing 'hermes'."""
+    return [
+        (i, line)
+        for i, line in enumerate(text.splitlines(), start=1)
+        if _HERMES_PATTERN.search(line)
+    ]
+
+
+def _skill_unexpected_hermes_lines(text: str) -> list[tuple[int, str]]:
+    """Find 'hermes' lines that aren't the YAML metadata key or the approved path."""
+    unexpected = []
+    for lineno, line in _hermes_hits(text):
+        if _SKILL_METADATA_KEY_RE.match(line):
+            continue  # ``metadata.hermes:`` schema key — keep
+        if _APPROVED_PATH_RE.search(line):
+            continue  # explicit tool-call path under step 1/4, see header comment
+        unexpected.append((lineno, line))
+    return unexpected
+
+
+def test_soul_md_does_not_leak_hermes_brand_name():
+    """SOUL.md is part of every system prompt; any 'hermes' literal here
+    risks the LLM echoing the internal framework name back to the user."""
+    hits = _hermes_hits(SOUL_MD.read_text(encoding="utf-8"))
+    assert hits == [], (
+        f"SOUL.md leaks 'hermes' at lines: {[h[0] for h in hits]}\n"
+        + "\n".join(f"  L{n}: {ln}" for n, ln in hits)
+    )
+
+
+@pytest.mark.parametrize(
+    "skill_dir",
+    sorted([p for p in SKILLS_DIR.iterdir() if p.is_dir()]),
+    ids=lambda p: p.name,
+)
+def test_skill_md_does_not_leak_hermes_outside_allowlist(skill_dir: Path):
+    """Each skills/*/SKILL.md may only contain 'hermes' via the YAML metadata
+    key (``  hermes:``) or the explicitly-flagged tool-call path; any other
+    occurrence is a regression and will be echoed by the LLM."""
+    skill_md = skill_dir / "SKILL.md"
+    text = skill_md.read_text(encoding="utf-8")
+    unexpected = _skill_unexpected_hermes_lines(text)
+    assert unexpected == [], (
+        f"{skill_md.relative_to(REPO_ROOT)} leaks 'hermes' outside the allowlist:\n"
+        + "\n".join(f"  L{n}: {ln}" for n, ln in unexpected)
+    )
+
+
+@pytest.mark.parametrize(
+    "cron_json",
+    sorted(CRON_DIR.glob("*.json")),
+    ids=lambda p: p.name,
+)
+def test_cron_prompt_fields_do_not_leak_hermes(cron_json: Path):
+    """cron/*.json ``prompt`` and ``prompt_template`` fields become the LLM
+    user prompt at job execution time; they must not leak 'hermes'.
+    The ``_aiseo_notes`` object is dev metadata and is intentionally excluded."""
+    payload = json.loads(cron_json.read_text(encoding="utf-8"))
+    for field in ("prompt", "prompt_template"):
+        value = payload.get(field, "") or ""
+        hits = _hermes_hits(value)
+        assert hits == [], (
+            f"{cron_json.relative_to(REPO_ROOT)}::{field} leaks 'hermes':\n"
+            + "\n".join(f"  L{n}: {ln}" for n, ln in hits)
+        )

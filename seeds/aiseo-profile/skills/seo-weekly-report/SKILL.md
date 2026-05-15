@@ -13,8 +13,9 @@ metadata:
 > 主链路：`web_extract`(对 `MEMORY.md` 文件中存的主站点重抓一次) + `MEMORY.md`
 > 文件 file-read（读取上次审计快照 / 上次发现）。
 > **注意**：cron 上下文下 memory tool 不可用，本 skill 所有 "memory" 都指
-> `~/.hermes/profiles/aiseo/memories/MEMORY.md` 文件 file-read / file write，
-> 不要调 memory tool。
+> AISEO profile 的 MEMORY.md 文件的 file-read / file write 操作（绝对路径见
+> 下方 step 1 的 file-read 参数；**面向用户的报告中只称 "AISEO MEMORY 文件"，
+> 不要复述底层目录路径**）。不要调 memory tool。
 > 输出按 3 章节骨架；中心是 **delta**：本次 vs 上次的字段差异。
 > 适合 cron 周期触发（`aiseo cron create`）；也可手动跑。
 
@@ -77,11 +78,12 @@ metadata:
      反问 SEO 子任务："你想这周关注哪个维度：技术信号 / 内容变更 / 结构化数据？"
    - 拿到合法输入后再进 step 1。
 
-1. **读 `MEMORY.md` 文件**：直接以纯文本方式读取
-   `~/.hermes/profiles/aiseo/memories/MEMORY.md`（cron 上下文下 memory tool
-   被禁用，请用 file-read 而非 memory tool 调用）。从 `## 用户站点` 取主站点
-   + 从 `## 历次审计快照` 取上次快照（包含 title / meta description /
-   canonical / robots / sitemap 声明数等字段）。
+1. **读 AISEO MEMORY 文件**：以纯文本 file-read 方式读取 AISEO profile 的
+   MEMORY.md（工具调用路径参数：`~/.hermes/profiles/aiseo/memories/MEMORY.md`；
+   该路径**仅作为 tool call 参数**使用，**不得在面向用户的报告中复述**；cron
+   上下文下 memory tool 被禁用，请用 file-read 而非 memory tool 调用）。从
+   `## 用户站点` 取主站点 + 从 `## 历次审计快照` 取上次快照（包含 title /
+   meta description / canonical / robots / sitemap 声明数等字段）。
 2. **本期抓取**（最多 3 次 `web_extract`）：
    - `<site_root>/` → 取首页 head 信号
    - `<site_root>/robots.txt` → 当前 robots 状态
@@ -92,10 +94,12 @@ metadata:
    - **回归**：上次已修复、本期又出现（关键告警）
    - **持续未修**：上次至今未变的 finding（标注 N 周未修）
 4. **写新快照（如执行环境允许 file write）**：以文件 append 方式把本期 audit
-   结果加到 `~/.hermes/profiles/aiseo/memories/MEMORY.md` `## 历次审计快照`
-   表，含日期 + 关键字段 + finding 总数（不要调 memory tool；cron 上下文该
-   tool 不可用）。失败容错：如 file write 失败，把快照内容写入本次报告附录
-   段，让用户手动 paste 回 `MEMORY.md`。
+   结果加到 AISEO MEMORY 文件的 `## 历次审计快照` 表（file-write 路径与
+   step 1 相同：`~/.hermes/profiles/aiseo/memories/MEMORY.md`；该路径**仅作为
+   tool call 参数**使用，**不得在面向用户的报告中复述**），含日期 + 关键
+   字段 + finding 总数（不要调 memory tool；cron 上下文该 tool 不可用）。
+   失败容错：如 file write 失败，把快照内容写入本次报告附录段，让用户
+   手动 paste 回 AISEO MEMORY 文件。
 5. **抓取异常处理**：任一关键资源抓取失败 → 报告对应段标注"本期未获取"，
    不与上次比对该字段；不得编造 delta。若全部失败，仍输出 3 章节 baseline
    报告，说明"实时抓取失败，本期只建立空基线，下次补抓后产 delta"；不得改用
