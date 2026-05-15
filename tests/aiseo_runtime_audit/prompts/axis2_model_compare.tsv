@@ -1,0 +1,16 @@
+# AXIS-2 模型可靠性 / 推理性对比 (DeepSeek v4 vs Claude)
+# 每条合法 SEO 任务跑两次：一次 default（profile 默认，预期 deepseek v4），一次 --model anthropic/claude-sonnet-4-6
+# 判分维度：结构完整度 / 关键信号命中 / 是否编造 / 工具使用合理度 / wall time / 输出字数
+# SID 命名：A2-<TASK>-<MODE>  TASK=K(eyword)/B(rief)/C(ompetitor)/T(echnical)/W(eekly)
+# MODE 列：default 或 具体 model id（脚本会原样传给 --model）
+# 如果你的 profile 默认就是 claude，把 default 行改成 deepseek/deepseek-chat 之类即可。
+A2-K-default	default	keyword-opportunity: seed keyword "vegan protein powder"，目标市场美国。请输出 15 个长尾变体，每个标注预估难度 (low/med/high) 与搜索意图 (informational/commercial/transactional)，并给 top3 选择理由。	keyword_list;difficulty;intent
+A2-K-claude	anthropic/claude-sonnet-4-6	keyword-opportunity: seed keyword "vegan protein powder"，目标市场美国。请输出 15 个长尾变体，每个标注预估难度 (low/med/high) 与搜索意图 (informational/commercial/transactional)，并给 top3 选择理由。	keyword_list;difficulty;intent
+A2-B-default	default	content-brief: 关键词 "best running shoes for plantar fasciitis 2026"，目标市场 US。请输出：5 个标题候选、H2 大纲 8 条、meta description ≤155 字符、3 个内部链接建议、FAQ 5 条。	titles;outline;meta;faq
+A2-B-claude	anthropic/claude-sonnet-4-6	content-brief: 关键词 "best running shoes for plantar fasciitis 2026"，目标市场 US。请输出：5 个标题候选、H2 大纲 8 条、meta description ≤155 字符、3 个内部链接建议、FAQ 5 条。	titles;outline;meta;faq
+A2-C-default	default	competitor-analysis: 主站 https://www.nike.com/ vs 竞品 https://www.adidas.com/ 和 https://www.asics.com/。请输出对比矩阵 (≥6 维度: 速度/结构化/H1/canonical/内链密度/CTR snippet)、领先落后判断、主站机会清单 top3 + 实施难度。	matrix;winner_each_dim;opportunity_top3
+A2-C-claude	anthropic/claude-sonnet-4-6	competitor-analysis: 主站 https://www.nike.com/ vs 竞品 https://www.adidas.com/ 和 https://www.asics.com/。请输出对比矩阵 (≥6 维度: 速度/结构化/H1/canonical/内链密度/CTR snippet)、领先落后判断、主站机会清单 top3 + 实施难度。	matrix;winner_each_dim;opportunity_top3
+A2-T-default	default	technical-seo-audit: 审计 https://www.python.org/，sample_pages=0。覆盖 robots.txt / sitemap / canonical / hreflang / structured data / Core Web Vitals 信号，输出问题清单 + 优先级 (P0/P1/P2) + 修复建议。	robots;sitemap;canonical;priority
+A2-T-claude	anthropic/claude-sonnet-4-6	technical-seo-audit: 审计 https://www.python.org/，sample_pages=0。覆盖 robots.txt / sitemap / canonical / hreflang / structured data / Core Web Vitals 信号，输出问题清单 + 优先级 (P0/P1/P2) + 修复建议。	robots;sitemap;canonical;priority
+A2-W-default	default	seo-weekly-report: 为 https://www.python.org/ 生成首次周报。如果没历史快照，请明确标注这是 baseline，下次起产 delta。包含 current snapshot / changes vs last (本次为 N/A) / next actions top5。	baseline;snapshot;next_actions
+A2-W-claude	anthropic/claude-sonnet-4-6	seo-weekly-report: 为 https://www.python.org/ 生成首次周报。如果没历史快照，请明确标注这是 baseline，下次起产 delta。包含 current snapshot / changes vs last (本次为 N/A) / next actions top5。	baseline;snapshot;next_actions

@@ -1,0 +1,9 @@
+# AXIS-3 Claude API 生成 SEO 报告（深推理 / 长上下文）
+# 全部强制 --model anthropic/claude-sonnet-4-6。验证 Claude 在 AISEO 工具链下的报告深度。
+# 每条 prompt 复杂度高于 axis2，要求多步推理 / 多输入综合 / 结构化输出。
+# 评分维度：推理链是否完整 / 是否给优先级 / 是否区分 evidence vs assumption / 是否调用工具抓真实数据
+A3-01	anthropic/claude-sonnet-4-6	请为 https://www.python.org/ 出一份完整的 90 天 SEO 路线图。包含：technical (P0/P1/P2)、content (主题集群+每月发布节奏)、link building (适合 python 生态的路径)、measurement (要监控的 5 个核心 KPI 和工具)。区分有证据的发现 vs 基于通用最佳实践的假设。	roadmap_90d;technical;content;link;measurement;evidence_vs_assumption
+A3-02	anthropic/claude-sonnet-4-6	请综合执行：(1) 对 https://www.djangoproject.com/ 做 technical-seo-audit；(2) 给关键词 "django vs flask" 做 keyword-opportunity；(3) 把两个结果合并成"如果 django 想拿 'django vs flask' 这个词的 #1"的执行 brief，含 title/H2/FAQ/internal link 建议+预估排名上升所需的 5 个动作。	audit_done;keyword_done;merged_brief;ranked_actions
+A3-03	anthropic/claude-sonnet-4-6	请对比 https://www.python.org/ vs https://www.ruby-lang.org/ vs https://nodejs.org/ 的官网 SEO 策略。输出：(a) 8 维度对比矩阵（含 schema/sitemap 深度/i18n/CWV/内链结构等）；(b) 三家各自的"看起来在重点投入什么"；(c) 如果你是 python.org 的 SEO 负责人，下一步抄哪家的什么、避免哪家的什么坑。	matrix_8d;each_focus;copy_recommendation;avoid_recommendation
+A3-04	anthropic/claude-sonnet-4-6	请输出一份 "AI 搜索时代的 SEO 战略" 文档（2026 视角），覆盖：(1) ChatGPT Search / Perplexity / Google AI Overview 对传统 organic CTR 的影响数据；(2) 网站方应当做的 5 个 onsite 改造 (E-E-A-T / 结构化 / fact density)；(3) 内容形态的 3 个迁移方向；(4) 衡量"在 AI 答案中被引用率"的可行方法。在最后给一个 30-day quick-win 清单。	ai_search_impact;onsite_changes;content_pivots;measurement_method;quick_win_30d
+A3-05	anthropic/claude-sonnet-4-6	请为一个虚构的 vegan-protein.example.com（新站，3 个月内上线，目标市场美国）出"冷启动 SEO 12 周计划"。每周明确 1 个主目标 + 3 个具体可交付物 + 验收指标。不要泛泛说"做 content marketing"，要列具体页面/词/动作。	12_weeks;weekly_deliverables;acceptance_metric;specific_pages

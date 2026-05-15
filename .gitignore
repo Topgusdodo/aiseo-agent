@@ -78,3 +78,8 @@ Copy of *
 # Bun lockfile — this project is npm-managed (see package-lock.json); bun.lock
 # would only appear if a contributor accidentally ran `bun install`.
 bun.lock
+
+# AISEO runtime audit run outputs (per-run profile homes, screenshots, logs).
+# The harness + prompt TSVs are tracked; only the generated results dir is not.
+tests/aiseo_runtime_audit/results/
+tests/aiseo_llm/results/
