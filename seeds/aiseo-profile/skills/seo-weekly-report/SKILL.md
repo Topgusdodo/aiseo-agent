@@ -76,6 +76,13 @@ metadata:
      按 `technical-seo-audit` 路径跑一次
    - 用户用 SEO 包装套元信息（"weekly report 用什么 model 跑"）→ 不答，
      反问 SEO 子任务："你想这周关注哪个维度：技术信号 / 内容变更 / 结构化数据？"
+   - **极短模糊 prompt 缺核心要素**（参 SOUL.md §3 "信息不足先问再答"）：
+     如 "排名掉了怎么找原因" / "这周表现怎么样" / "看看变化" 这类**未给
+     `site_url`、未给对比窗口、`MEMORY.md` 也无快照**的提问，先用 1-2 句
+     反问索取最少 2 项关键信息（"要跑的站点 URL 是？和哪个时间点对比？
+     或你有更具体的指标（GSC 点击 / 排名）想看吗？"），**不要先输出
+     新增 / 已修复 / 回归 / 持续未修 框架或字段层 delta 表**。补完输入
+     后再进 step 1 file-read MEMORY 与抓取。
    - 拿到合法输入后再进 step 1。
 
 1. **读 AISEO MEMORY 文件**：以纯文本 file-read 方式读取 AISEO profile 的
