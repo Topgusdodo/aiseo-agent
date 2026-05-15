@@ -63,6 +63,15 @@ hermes update       # 更新到最新版本
 hermes doctor       # 诊断问题
 ```
 
+本 fork 的 AISEO profile 快捷入口：
+
+```bash
+uv run aiseo              # 无参数：用 aiseo profile 启动聊天
+uv run aiseo setup        # 子命令透传（Route B；等价于 hermes -p aiseo setup）
+```
+
+`aiseo` wrapper 启动时会自动设 `AISEO_BRAND_ACTIVE=1`——启动 banner 与 agent 身份显示 **"AISEO Agent"** 而非上游的 **"Hermes Agent"**。直接跑 `hermes -p aiseo`（不走 wrapper）则保留 Hermes 默认品牌；这是刻意设计，确保上游 Hermes CLI 不被静默覆盖。
+
 📖 **[完整文档 →](https://hermes-agent.nousresearch.com/docs/)**
 
 ## CLI 与消息平台 快速对照

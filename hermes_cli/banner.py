@@ -332,7 +332,8 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
 
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
-    base = f"Hermes Agent v{VERSION} ({RELEASE_DATE})"
+    brand = "AISEO Agent" if os.environ.get("AISEO_BRAND_ACTIVE") == "1" else "Hermes Agent"
+    base = f"{brand} v{VERSION} ({RELEASE_DATE})"
     state = get_git_banner_state()
     if not state:
         return base

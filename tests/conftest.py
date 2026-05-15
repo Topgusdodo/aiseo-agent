@@ -307,6 +307,14 @@ def _hermetic_environment(tmp_path, monkeypatch):
     for name in _HERMES_BEHAVIORAL_VARS:
         monkeypatch.delenv(name, raising=False)
 
+    # 2b. AISEO_BRAND_ACTIVE — aiseo_cli.main() sets this via os.environ.setdefault
+    #     so the AISEO brand only activates when launched via the aiseo wrapper.
+    #     Tests that call aiseo_cli.main() leak the variable onto the same xdist
+    #     worker; banner/identity tests that assert the Hermes default then flip
+    #     to AISEO and fail. Clear it unconditionally — tests that need it set
+    #     do so explicitly.
+    monkeypatch.delenv("AISEO_BRAND_ACTIVE", raising=False)
+
     # 3. Redirect HERMES_HOME to a per-test tempdir. Code that reads
     #    ``~/.hermes/*`` via ``get_hermes_home()`` now gets the tempdir.
     #

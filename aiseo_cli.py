@@ -524,6 +524,7 @@ def _run_cron_create_from_memory(skill_name: str) -> None:
 
 
 def main() -> None:
+    os.environ.setdefault("AISEO_BRAND_ACTIVE", "1")
     args = sys.argv[1:]
     if args and args[0] in {"-h", "--help"}:
         print(AISEO_HELP.rstrip())

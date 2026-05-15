@@ -101,8 +101,10 @@ PATH="$PWD:$PATH" uv run bin/aiseo tools
 | `extract_backend` | `readability` | 内置 readability 解析，免 key |
 | `browser engine` | `playwright` | 首次自动装 chromium（要等 30s） |
 
-配完后再跑 `uv run bin/aiseo`，启动 banner 应该从 "5 tools" 变成 "18 tools"。
-这时 LLM 才真的能调 `browser_navigate` / `web_extract`。
+配完后再跑 `uv run bin/aiseo`，启动 banner 标题应显示 **"AISEO Agent v..."**
+（不是 "Hermes Agent v..."——`aiseo` wrapper 会自动设 `AISEO_BRAND_ACTIVE=1`
+触发 banner / identity 切换），工具数应从 "5 tools" 变成 "18 tools"。这时
+LLM 才真的能调 `browser_navigate` / `web_extract`。
 
 ---
 

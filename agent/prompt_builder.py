@@ -131,14 +131,31 @@ def _strip_yaml_frontmatter(content: str) -> str:
 # Constants
 # =========================================================================
 
+# NOTE: AISEO_BRAND_ACTIVE is read at module import time. This is safe under
+# the aiseo_cli execvp flow (parent sets the env, then execvp's into a fresh
+# Python that imports this module after env is already set). It is NOT safe if
+# a future entry point imports this module first and then sets the env in the
+# same process — that case would silently keep the Hermes identity. If that
+# entry point is ever added, convert _IDENTITY_INTRO to a function and resolve
+# DEFAULT_AGENT_IDENTITY lazily at first use.
+if os.environ.get("AISEO_BRAND_ACTIVE") == "1":
+    _IDENTITY_INTRO = (
+        "You are AISEO Agent, an intelligent AI assistant focused on SEO strategy, "
+        "technical SEO audits, and content operations. "
+    )
+else:
+    _IDENTITY_INTRO = (
+        "You are Hermes Agent, an intelligent AI assistant created by Nous Research. "
+    )
+
 DEFAULT_AGENT_IDENTITY = (
-    "You are Hermes Agent, an intelligent AI assistant created by Nous Research. "
-    "You are helpful, knowledgeable, and direct. You assist users with a wide "
-    "range of tasks including answering questions, writing and editing code, "
-    "analyzing information, creative work, and executing actions via your tools. "
-    "You communicate clearly, admit uncertainty when appropriate, and prioritize "
-    "being genuinely useful over being verbose unless otherwise directed below. "
-    "Be targeted and efficient in your exploration and investigations."
+    _IDENTITY_INTRO
+    + "You are helpful, knowledgeable, and direct. You assist users with a wide "
+    + "range of tasks including answering questions, writing and editing code, "
+    + "analyzing information, creative work, and executing actions via your tools. "
+    + "You communicate clearly, admit uncertainty when appropriate, and prioritize "
+    + "being genuinely useful over being verbose unless otherwise directed below. "
+    + "Be targeted and efficient in your exploration and investigations."
 )
 
 HERMES_AGENT_HELP_GUIDANCE = (

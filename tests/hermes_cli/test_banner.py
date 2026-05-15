@@ -133,3 +133,40 @@ def test_build_welcome_banner_title_falls_back_when_no_tag():
     raw = buf.getvalue()
     assert "Hermes Agent v" in raw, "Version label missing from title"
     assert "\x1b]8;" not in raw, "OSC-8 hyperlink should not be emitted without a tag"
+
+
+# =========================================================================
+# AISEO_BRAND_ACTIVE env-guard — Hermes default vs AISEO wrapper paths.
+# Lock the two branches so a future regression (inverted condition, dropped
+# else, removed setdefault) can't pass with the default-path test alone.
+# =========================================================================
+
+
+def test_format_banner_version_label_default_is_hermes(monkeypatch):
+    """Without AISEO_BRAND_ACTIVE, the banner says Hermes Agent (default fork behavior)."""
+    monkeypatch.delenv("AISEO_BRAND_ACTIVE", raising=False)
+    import hermes_cli.banner as _banner
+    monkeypatch.setattr(_banner, "get_git_banner_state", lambda: None)
+    label = _banner.format_banner_version_label()
+    assert label.startswith("Hermes Agent v"), label
+    assert "AISEO" not in label
+
+
+def test_format_banner_version_label_aiseo_when_env_active(monkeypatch):
+    """With AISEO_BRAND_ACTIVE=1, the banner switches to AISEO Agent."""
+    monkeypatch.setenv("AISEO_BRAND_ACTIVE", "1")
+    import hermes_cli.banner as _banner
+    monkeypatch.setattr(_banner, "get_git_banner_state", lambda: None)
+    label = _banner.format_banner_version_label()
+    assert label.startswith("AISEO Agent v"), label
+    assert "Hermes Agent" not in label
+
+
+def test_format_banner_version_label_other_env_values_keep_hermes(monkeypatch):
+    """Only the literal "1" activates AISEO; other values fall through to Hermes."""
+    import hermes_cli.banner as _banner
+    monkeypatch.setattr(_banner, "get_git_banner_state", lambda: None)
+    for value in ("", "0", "true", "yes", "AISEO"):
+        monkeypatch.setenv("AISEO_BRAND_ACTIVE", value)
+        label = _banner.format_banner_version_label()
+        assert label.startswith("Hermes Agent v"), f"value={value!r} → {label}"

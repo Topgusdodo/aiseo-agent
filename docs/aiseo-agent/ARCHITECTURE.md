@@ -4,6 +4,8 @@
 
 AISEO 是构建在 Hermes runtime 上的 SEO 专用品牌化 Agent：thin wrapper 命令 + Hermes profile + guard plugin + 1 个最小 core hook。不重写 runtime，不污染 Hermes 原有入口，唯一 Hermes core 改动是新增 `pre_user_message` hook，用于支持硬 InputGate。
 
+**Brand switch（env-guard）**：`aiseo_cli.main()` 启动时 `os.environ.setdefault("AISEO_BRAND_ACTIVE", "1")`；`hermes_cli/banner.py::format_banner_version_label` 与 `agent/prompt_builder.py::DEFAULT_AGENT_IDENTITY` 读取该 env 决定显示 "AISEO Agent" 还是 "Hermes Agent"。env 未设时（直接跑 `hermes -p aiseo`）保留上游 Hermes 品牌；env=1（走 `aiseo` wrapper）才切换。双路径 contract 测试见 `tests/agent/test_prompt_builder.py::TestPromptBuilderBrandSwitch` 与 `tests/hermes_cli/test_banner.py::test_format_banner_version_label_*`。
+
 ## 2. 关键事实背景
 
 - aiseo-agent 仓库本身就是 Hermes 的 fork，源码全在当前仓库内。
