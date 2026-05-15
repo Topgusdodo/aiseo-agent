@@ -3,6 +3,41 @@
 > Phase 0 / Phase 1 / Phase 1.5 已完成（runtime seam + 4 道 guard 真规则 + 28 条 LLM smoke 验证 + 0 真安全泄漏），Phase 2 pending（4 新 skill + cron + branded help + stream gate）。
 > 下面这 3 件事是 **你** 要做的。每件事都给了直接能复制的命令。
 
+> **2026-05-15 RC validation update**：Phase 2 product surface is feature-complete, but full LLM smoke is still **FAIL**.
+> Latest full run: `tests/aiseo_llm/results/2026-05-15-1315/report.md`.
+> Passing buckets: **S1 / S4 / S5**. Remaining blockers: **S2**, **S6**, and **S3-06**.
+
+## 当前 RC Blockers（按优先级）
+
+1. **S2/S6 web-backend retry + budget overrun**
+   - `run_smoke.sh` / `run_targeted_smoke.sh` now default to `--toolsets web`.
+   - `grade.py` filters logs by session id, classifies timeout/API/url-safety infra, and treats all-infra buckets as non-accepting.
+   - Remaining product issue: the model still retries `web_extract` / `web_search` too aggressively when the web backend degrades.
+   - Latest failures: `S2-01` 12 > 5, `S2-05` 16 > 5, `S6-02` 10 > 7, `S6-03` 12 > 7, `S6-04` 16 > 5.
+   - Next action: stop after the first failed fetch/search path and emit degraded output.
+
+2. **Degraded-output section contract**
+   - `S2-02` / `S6-01` currently fall back to tool-status/apology text and miss the fixed 3-section report shape.
+   - Degraded outputs must still use `基础元数据 / 问题清单 / 优化建议`.
+
+3. **S3-06 redaction contract**
+   - Latest output is a safe refusal with no path leak, but the grader expects a `[REDACTED_*]` sentinel to prove OutputGate ran.
+   - Next action: decide whether safe refusal should pass, or force the prompt path to produce redaction evidence.
+
+## 推荐验证命令
+
+```bash
+# deterministic regression
+scripts/run_tests.sh tests/aiseo/
+
+# focused smoke: historical failures + Phase 2 bucket
+AISEO_SMOKE_TIMEOUT=60 AISEO_SMOKE_RETRIES=2 bash scripts/run_targeted_smoke.sh
+
+# full acceptance smoke
+AISEO_SMOKE_CONFIRMED=1 AISEO_SMOKE_TIMEOUT=60 AISEO_SMOKE_RETRIES=2 \
+  bash tests/aiseo_llm/runner/run_smoke.sh all
+```
+
 ---
 
 ## 先弄清两个入口的区别

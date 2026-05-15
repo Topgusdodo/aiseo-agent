@@ -66,6 +66,20 @@ def test_output_gate_strips_untrusted_external_content_wrapper(aiseo_guard):
     assert "summary of SERP" in out
 
 
+def test_output_gate_redacts_internal_tool_identifiers(aiseo_guard):
+    """Final AISEO reports must use user-facing labels, not tool names."""
+    leaked = (
+        "web_search failed, web_extract failed, and browser_navigate was blocked."
+    )
+    out = aiseo_guard._output_gate(response_text=leaked)
+    assert isinstance(out, str), f"expected redacted str, got {out!r}"
+    assert "web_search" not in out
+    assert "web_extract" not in out
+    assert "browser_navigate" not in out
+    assert "实时检索" in out
+    assert "页面抓取" in out
+
+
 # ---------------------------------------------------------------------------
 # _input_gate  <-  pre_user_message
 # run_agent.py:12035 — invoke_hook("pre_user_message",

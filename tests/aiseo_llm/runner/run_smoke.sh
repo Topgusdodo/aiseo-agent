@@ -100,6 +100,8 @@ fi
 PROFILE_LOG="$PROFILE_HOME/logs/agent.log"
 PER_PROMPT_TIMEOUT="${AISEO_SMOKE_TIMEOUT:-60}"
 MAX_RETRIES="${AISEO_SMOKE_RETRIES:-2}"
+SMOKE_JOBS="${AISEO_SMOKE_JOBS:-1}"
+SMOKE_TOOLSETS="${AISEO_SMOKE_TOOLSETS:-web}"
 
 # ----------------------------------------------------------------------------
 # Bucket selection
@@ -128,6 +130,7 @@ fi
 echo "Run started: $RUN_ID; bucket=$BUCKET; out=$OUT"
 echo "Profile:     $PROFILE_HOME"
 echo "Prompt files: ${PROMPT_FILES[*]}"
+echo "Toolsets:    $SMOKE_TOOLSETS"
 
 # ----------------------------------------------------------------------------
 # Prompt extraction
@@ -190,6 +193,17 @@ run_one() {
   local out_path="$OUT/${sid}.out"
   local log_path="$OUT/${sid}.log"
   local meta_path="$OUT/${sid}.meta"
+  local session_ids=""
+  local run_hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+  local run_profile_log="$PROFILE_LOG"
+
+  if [ "$SMOKE_JOBS" != "1" ]; then
+    run_hermes_home="$OUT/.homes/$sid"
+    mkdir -p "$run_hermes_home/profiles"
+    cp -R "$PROFILE_HOME" "$run_hermes_home/profiles/aiseo"
+    mkdir -p "$run_hermes_home/profiles/aiseo/logs"
+    run_profile_log="$run_hermes_home/profiles/aiseo/logs/agent.log"
+  fi
 
   : > "$out_path"
   : > "$log_path"
@@ -214,11 +228,11 @@ run_one() {
     attempt=$((attempt + 1))
 
     # Fresh agent.log slice per attempt.
-    : > "$PROFILE_LOG" 2>/dev/null || true
+    : > "$run_profile_log" 2>/dev/null || true
 
     # perl alarm provides a portable timeout on macOS (no GNU timeout).
     set +e
-    perl -e '
+    HERMES_HOME="$run_hermes_home" perl -e '
       use strict;
       use warnings;
       my $secs = shift;
@@ -241,14 +255,33 @@ run_one() {
         exit 124;
       }
     ' "$PER_PROMPT_TIMEOUT" \
-      "$AISEO_BIN" chat -q "$prompt" --quiet \
+      "$AISEO_BIN" chat --toolsets "$SMOKE_TOOLSETS" -q "$prompt" --quiet \
       >"$out_path" 2>>"$log_path"
     rc=$?
     set -e
 
     # Always pull whatever agent.log was produced.
-    if [ -s "$PROFILE_LOG" ]; then
-      cat "$PROFILE_LOG" >> "$log_path"
+    if [ -s "$run_profile_log" ]; then
+      cat "$run_profile_log" >> "$log_path"
+    fi
+
+    if [ -s "$run_profile_log" ]; then
+      local attempt_session
+      attempt_session="$(
+        sed -n 's/.*conversation turn: session=\([^ ]*\).*/\1/p' "$run_profile_log" | head -n 1
+      )"
+      if [ -n "$attempt_session" ]; then
+        case ",$session_ids," in
+          *",$attempt_session,"*) ;;
+          *)
+            if [ -z "$session_ids" ]; then
+              session_ids="$attempt_session"
+            else
+              session_ids="$session_ids,$attempt_session"
+            fi
+            ;;
+        esac
+      fi
     fi
 
     if [ "$rc" -eq 0 ] && [ -s "$out_path" ]; then
@@ -263,6 +296,7 @@ run_one() {
 
   echo "attempts=$attempt" >> "$meta_path"
   echo "final_rc=$rc"      >> "$meta_path"
+  echo "session_id=$session_ids" >> "$meta_path"
   if [ "$attempt" -gt 1 ] && [ "$rc" -eq 0 ]; then
     echo "flaky=true" >> "$meta_path"
   fi
@@ -282,9 +316,18 @@ for pf in "${PROMPT_FILES[@]}"; do
   while IFS=$'\t' read -r SID PROMPT_TEXT CLS ASSERTION; do
     [ -n "$SID" ] || continue
     PROMPT_COUNT=$((PROMPT_COUNT + 1))
-    run_one "$SID" "$PROMPT_TEXT" "$CLS"
+    if [ "$SMOKE_JOBS" = "1" ]; then
+      run_one "$SID" "$PROMPT_TEXT" "$CLS"
+    else
+      run_one "$SID" "$PROMPT_TEXT" "$CLS" &
+    fi
   done < <(extract_prompts "$pf")
 done
+
+if [ "$SMOKE_JOBS" != "1" ]; then
+  echo "[smoke] waiting for $PROMPT_COUNT parallel prompt(s) ..."
+  wait
+fi
 
 echo ""
 echo "Run finished: $RUN_ID  (prompts=$PROMPT_COUNT, out=$OUT)"

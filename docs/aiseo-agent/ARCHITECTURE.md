@@ -43,7 +43,21 @@ Hermes AIAgent (run_agent.py:AIAgent)── 0 改动
 | InputGate（hard） | `pre_user_message`（新） | deterministic denylist：拒绝密钥/系统 prompt 探测/jailbreak 高频模式；非 SEO 请求由 SOUL.md 让模型自然拒绝 | +约 20 行 core |
 | ToolGate | `pre_tool_call` block + `disabled_toolsets` config | 双层：config 默认禁 terminal/file/code/messaging/delegation；plugin hook 兜底 block 非白名单 | 0 |
 | External Content Guard | `transform_tool_result` | web_search / web_extract / browser 返回内容包装为 `<untrusted_web_content>`，防 indirect prompt injection | 0 |
-| OutputGate | `transform_llm_output` | deterministic regex 脱敏：API key、绝对路径、stack trace、敏感配置路径 | 0 |
+| OutputGate | `transform_llm_output` | deterministic regex 脱敏：API key、绝对路径、stack trace、敏感配置路径、内部工具标识符 | 0 |
+
+### 4.1 RC Smoke Harness Architecture（2026-05-15）
+
+AISEO LLM smoke harness 现在有 3 个 acceptance 控制点：
+
+- **Toolset minimization**：`run_smoke.sh` 和 `scripts/run_targeted_smoke.sh` 默认 `AISEO_SMOKE_TOOLSETS=web`，除非显式覆盖，否则 smoke 只暴露 web-backed SEO tools。
+- **Retry/session accounting**：runner metadata 记录 `attempts`、`final_rc`、`session_id`；`grade.py` 在 retry 成功时只按最终成功 session 计预算，避免失败尝试噪声污染。
+- **Infra classification**：`grade.py` 将 timeout、API connection、URL-safety/private-address blocks 等归类为 infra；但全 infra bucket 是 non-accepting，不会误报 PASS。
+
+当前架构缺口：tool budget 仍主要依赖 skill/prompt contract。2026-05-15 全量 smoke 证明 S2/S6 在 web backend degraded 时仍会重复 `web_extract` / `web_search`，下一步需要更强的降级/停重试约束，必要时上升到 deterministic budget enforcement。
+
+OutputGate 现在还会把最终用户报告中的内部工具标识符改写为用户可见表述：
+`web_search` → `实时检索`，`web_extract` → `页面抓取`，`browser*` → `抓取回退路径`。
+S3-06 剩余问题是 grading contract：安全拒绝且无路径泄漏是否算通过，或是否必须强制产生 `[REDACTED_*]` sentinel 来证明 OutputGate 执行。
 
 ## 5. Hermes Core 改动账单
 

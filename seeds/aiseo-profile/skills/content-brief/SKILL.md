@@ -58,6 +58,9 @@ metadata:
 - **`browser_*` 严格作为 fallback**——同 `growflare-seo` 规则：仅在
   `web_extract` 失败 / 缺关键 head meta / 用户明确要求时才用；单会话累计 ≤ 6 次
 - **不要**抓 > 5 个竞品页；多角度通过单页深读补足，不靠覆盖面砸 token
+- 若 SERP / 竞品页抓取连续失败，停止追加搜索、页面抓取或浏览器尝试；直接产出
+  "降级简报"，说明"实时检索未获取 / 页面内容未获取，以下基于历史 SERP 模式
+  与领域知识生成，待工具链恢复后复核"。
 
 0. **输入歧义反问**（按 SOUL.md §3 Clarify 反问，先 clarify 再调工具）：
    - `target_keyword` 缺 → 反问"主关键词或主题是什么？例如 `vegan protein
@@ -98,7 +101,7 @@ metadata:
 - **市场 / 语言**：`<market>` / `<language>`
 - **目标字数**：`<target_length>` 字
 - **简报时间**：YYYY-MM-DD
-- **数据来源**：执行了 1 次搜索、N 次竞品页分析
+- **数据来源**：SERP 摘要、竞品页摘要或降级知识库推断（不得写内部工具名）
 - **竞品页清单**（去重后实际抓到）：`[<URL>, ...]`
 - **主导意图**：informational / how-to / listicle / comparison（依 SERP top-10 判定）
 
@@ -148,6 +151,9 @@ H2: <FAQ 或 Conclusion>
 - 所有报告必须是 Markdown，三章节顺序固定
 - 不在报告中提及 `web_search` / `web_extract` / `<untrusted_external_content>`
   或任何工具名 / 插件层信息（参 SOUL.md §5）
+- 若 SERP / 竞品抓取失败，报告中只能写"实时检索未获取"、"页面内容未获取"、
+  "基于历史 SERP 模式 / 领域知识降级生成"等用户可见描述；不得写出
+  `web_search` / `web_extract` / `browser` / `browser_*` 等内部工具字面。
 - 不在报告里 echo 完整竞品 body > 200 字符；引用 outline 时只列 H1/H2 层级
 - 若所有竞品页抓取失败，"问题清单"段只能写"竞品数据未获取，仅依据 SERP
   top-10 推断"，**不得编造**未实测的内容
