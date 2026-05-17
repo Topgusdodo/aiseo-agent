@@ -304,10 +304,14 @@ axis_stats() {
     echo "0 0 0 0"
     return
   fi
+  if ! compgen -G "$axis_dir/*.meta" >/dev/null; then
+    echo "0 0 0 0"
+    return
+  fi
   local total ok timeouts empty
   total=$(ls "$axis_dir"/*.meta 2>/dev/null | wc -l | tr -d ' ')
-  ok=$(grep -l "^rc=0$" "$axis_dir"/*.meta 2>/dev/null | wc -l | tr -d ' ')
-  timeouts=$(grep -l "^rc=124$" "$axis_dir"/*.meta 2>/dev/null | wc -l | tr -d ' ')
+  ok=$( (grep -l "^rc=0$" "$axis_dir"/*.meta 2>/dev/null || true) | wc -l | tr -d ' ')
+  timeouts=$( (grep -l "^rc=124$" "$axis_dir"/*.meta 2>/dev/null || true) | wc -l | tr -d ' ')
   empty=$(awk -F= '/^out_bytes=/ { if ($2 == 0) c++ } END { print c+0 }' "$axis_dir"/*.meta 2>/dev/null || echo 0)
   echo "$total $ok $timeouts $empty"
 }

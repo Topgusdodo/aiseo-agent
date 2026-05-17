@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 
 def _payload(raw: str) -> dict:
     return json.loads(raw)
@@ -67,6 +69,47 @@ def test_schedule_task_monthly_uses_monthly_cron(aiseo_guard, tmp_path, monkeypa
     assert result["job"]["skills"] == ["seo-weekly-report"]
 
 
+def test_schedule_task_unwraps_model_argument_wrappers(aiseo_guard, tmp_path, monkeypatch):
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    value_wrapped = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "string": False,
+                "value": json.dumps(
+                    {
+                        "task_type": "page_audit",
+                        "page_url": "https://example.com",
+                        "frequency": "daily",
+                        "time": "23:00",
+                    }
+                ),
+            }
+        )
+    )
+    params_wrapped = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "params": {
+                    "task_type": "page_audit",
+                    "page_url": "https://example.org",
+                    "frequency": "daily",
+                    "time": "23:30",
+                }
+            }
+        )
+    )
+
+    assert value_wrapped["success"] is True, value_wrapped
+    assert value_wrapped["job"]["task_type"] == "page_audit"
+    assert value_wrapped["job"]["time"] == "23:00"
+    assert params_wrapped["success"] is True, params_wrapped
+    assert params_wrapped["job"]["task_type"] == "page_audit"
+    assert params_wrapped["job"]["time"] == "23:30"
+
+
 def test_schedule_task_supports_all_seo_task_types(aiseo_guard, tmp_path, monkeypatch):
     monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
     monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
@@ -127,12 +170,13 @@ def test_schedule_task_rejects_invalid_time_frequency_and_task_type(aiseo_guard)
             {
                 "task_type": "technical_audit",
                 "site_url": "https://example.com",
-                "frequency": "hourly",
+                "frequency": "every_5min",
             }
         )
     )
     assert bad_frequency["success"] is False
-    assert "daily, weekly, or monthly" in bad_frequency["error"]
+    assert "frequency must be one of" in bad_frequency["error"]
+    assert "every_5min" not in bad_frequency["error"]
 
     bad_task = _payload(
         aiseo_guard._aiseo_schedule_task(
@@ -185,3 +229,169 @@ def test_schedule_report_alias_still_creates_delta_report(aiseo_guard, tmp_path,
     assert result["success"] is True
     assert result["job"]["task_type"] == "seo_delta_report"
     assert result["job"]["skills"] == ["seo-weekly-report"]
+
+
+def test_aiseo_schedule_task_hourly_cron_expr(aiseo_guard, tmp_path, monkeypatch):
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "hourly",
+                "time": "09:30",
+            }
+        )
+    )
+
+    assert result["success"] is True, result
+    job = result["job"]
+    assert job["frequency"] == "hourly"
+    # Sub-daily cadence: cron only carries MM; the displayed HH:MM stays in the
+    # job's prompt for human readability.
+    assert job["schedule"] == "30 * * * *"
+    assert job["time"] == "09:30"
+
+
+def test_aiseo_schedule_task_every_6h_cron_expr(aiseo_guard, tmp_path, monkeypatch):
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "every_6h",
+                "time": "09:15",
+            }
+        )
+    )
+
+    assert result["success"] is True, result
+    job = result["job"]
+    assert job["frequency"] == "every_6h"
+    # every_6h fires every 6 hours anchored to the submitted HH:MM.
+    assert job["schedule"] == "15 3,9,15,21 * * *"
+    assert job["time"] == "09:15"
+
+
+def test_aiseo_schedule_task_every_12h_cron_expr(aiseo_guard, tmp_path, monkeypatch):
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "every_12h",
+                "time": "09:45",
+            }
+        )
+    )
+
+    assert result["success"] is True, result
+    job = result["job"]
+    assert job["frequency"] == "every_12h"
+    assert job["schedule"] == "45 9,21 * * *"
+    assert job["time"] == "09:45"
+
+
+def test_aiseo_schedule_task_rejects_minute_level_frequency(aiseo_guard):
+    """Anti-slippage guard: hourly is the floor, anything sub-hourly must reject."""
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "every_5min",
+                "time": "09:00",
+            }
+        )
+    )
+    assert result["success"] is False
+    assert "frequency must be one of" in result["error"]
+
+
+def test_aiseo_schedule_task_rejects_arbitrary_cron_expression(aiseo_guard):
+    """Anti-slippage guard: raw cron strings must never reach the schedule expr."""
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "*/5 * * * *",
+                "time": "09:00",
+            }
+        )
+    )
+    assert result["success"] is False
+    assert "frequency must be one of" in result["error"]
+
+
+def test_aiseo_schedule_task_subdaily_cadence_prompt_carries_full_time(
+    aiseo_guard, tmp_path, monkeypatch
+):
+    """Schedule label in the prompt keeps the HH:MM the customer specified
+    even when the hourly cron expression only uses MM."""
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    from cron.jobs import get_job
+
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": "hourly",
+                "time": "14:42",
+            }
+        )
+    )
+    assert result["success"] is True, result
+    stored = get_job(result["job"]["id"])
+    assert "Schedule label: hourly at 14:42 (Asia/Shanghai)." in stored["prompt"]
+    # Plugin must classify its own newly created sub-daily job as AISEO-owned.
+    assert aiseo_guard._is_aiseo_created_job(stored)
+
+
+@pytest.mark.parametrize(
+    "frequency,expected_expr",
+    [
+        ("daily", "0 9 * * *"),
+        ("weekly", "0 9 * * 1"),
+        ("monthly", "0 9 1 * *"),
+        ("hourly", "0 * * * *"),
+        ("every_6h", "0 3,9,15,21 * * *"),
+        ("every_12h", "0 9,21 * * *"),
+    ],
+)
+def test_aiseo_schedule_task_all_frequencies_produce_canonical_cron(
+    aiseo_guard, tmp_path, monkeypatch, frequency, expected_expr
+):
+    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+
+    result = _payload(
+        aiseo_guard._aiseo_schedule_task(
+            {
+                "task_type": "page_audit",
+                "page_url": "https://example.com",
+                "frequency": frequency,
+                "time": "09:00",
+            }
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["job"]["frequency"] == frequency
+    assert result["job"]["schedule"] == expected_expr
