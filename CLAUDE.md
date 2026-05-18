@@ -88,6 +88,30 @@ Profile-level defense in depth lives in `seeds/aiseo-profile/config.yaml`:
 `messaging`, `file`, `skills` (management), `cronjob`, `image_gen`. ToolGate is the
 backstop if a future toolset slips through.
 
+## The dataforseo plugin
+
+`plugins/dataforseo/` is a standalone, opt-in plugin that exposes 5 structured
+SEO data tools backed by the DataForSEO API (SERP, keyword search volume,
+keyword ideas, on-page audit, backlinks summary).
+
+| Aspect | Value | Notes |
+|---|---|---|
+| Path | `plugins/dataforseo/` | `plugin.yaml` declares `provides_tools` (5 tools) and `requires_env: [DATAFORSEO_BASE64]` |
+| Enabled by | `seeds/aiseo-profile/config.yaml` `plugins.enabled` (includes `- dataforseo`) | Default on, but every tool's `check_fn=_check_dataforseo_available` greys it out until env is set |
+| Credentials | `DATAFORSEO_BASE64` in `~/.hermes/profiles/aiseo/.env` | Precomputed `base64(login:password)`; optional `DATAFORSEO_SANDBOX=1` flips to the sandbox base URL |
+
+Tool runtime behavior covers four DataForSEO call patterns: Basic Auth POST for
+Live endpoints (fast path), `tasks_post` + `tasks_ready` polling for SERP, on-page
+`task_post` + `crawl_progress` polling, and direct Live calls for keyword/backlinks
+summaries. Credentials are masked via `_mask_auth_header` in all logged request
+metadata. HTTP 429 triggers exponential backoff (5s / 10s / 20s, max 3 retries).
+
+Design reference: `.plans/dataforseo-plugin.md` is the original design doc — its
+older variable names (`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`) have since been
+merged into the single `DATAFORSEO_BASE64`. The current source of truth is
+`.claude/PRPs/reports/dataforseo-plugin-report.md`. Server-side credential
+provisioning SOP lives in `docs/aiseo-agent/DEPLOYMENT.md`.
+
 ## Common commands
 
 ```bash

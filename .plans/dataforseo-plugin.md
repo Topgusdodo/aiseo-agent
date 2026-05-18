@@ -1,5 +1,17 @@
 # DataForSEO 插件 — aiseo-agent 集成计划
 
+> **Status: IMPLEMENTED (2026-05-15, v0.1) — 本文档为历史设计 RFC，不再代表当前实现**
+>
+> 关键过时点：本文档全文用 `DATAFORSEO_LOGIN` + `DATAFORSEO_PASSWORD` 两个 env var，
+> 但**最终落地合并为单一** `DATAFORSEO_BASE64`（precomputed `base64(login:password)`），
+> 与 sibling aiseo-api/probe Go 服务保持一致。按本文档旧变量名配置**不会生效**。
+>
+> 当前权威来源：
+> - 实施报告：`.claude/PRPs/reports/dataforseo-plugin-report.md`
+> - 插件契约：`plugins/dataforseo/plugin.yaml`
+> - 服务器配置 SOP：`docs/aiseo-agent/DEPLOYMENT.md`
+> - env 模板：`.env.example` §"DATAFORSEO API"
+
 ## 状态
 - **决议**：经过 5 轮双方讨论（Claude + GPT）+ 2 轮 code-review 后锁定（2026-05-15）
   - v1 → v2：吸收 reviewer 第一轮 9 项 finding（2 CRITICAL / 4 HIGH / 3 MEDIUM）

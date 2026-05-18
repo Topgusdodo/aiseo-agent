@@ -78,6 +78,17 @@ metadata:
 
 1. **抓页面**：`web_extract(url=<input>)` →
    返回页面 title / meta tags / body text / 可能的结构化数据。
+1.5. **（可选 · 结构化页面信号补强）**：
+   - 若账户已配置**外部 SEO 数据源**，对当前 URL 调用"**单页结构化审计**"，
+     补强从原始 HTML 难以稳定推断的信号：schema 标记完整度 / hreflang
+     配置 / 内链结构（出入链分布）/ 抓取错误（broken link / redirect chain）。
+   - 同步调用"**外链概览**"获取该域名的引用域数与域名权重参考，用于在
+     Step 3 优化建议中校准 P0/P1/P2 估工量。
+   - 仅取 2-3 类最相关信号，不批量拉全量审计字段；用于补强 Step 1 已有
+     HTML 抽取结果，而非替代。
+   - 若**外部 SEO 数据源未配置**或调用失败，跳过本步直接进入 Step 2，
+     并在报告"基础元数据"段附注"未启用结构化数据源"，不要 raise 异常，
+     也不要在"问题清单"段编造未实测的 finding。
 2. **核 indexability**：从 HTML head 抽取 `<meta name="robots">` /
    `<link rel="canonical">` / `<link rel="alternate" hreflang>` /
    `<meta name="googlebot">`；缺失或冲突即记为 P0 finding。
