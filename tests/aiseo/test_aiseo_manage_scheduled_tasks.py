@@ -187,15 +187,15 @@ def test_manage_scheduled_tasks_reschedule_time_preserves_frequency_and_timezone
     )
 
     assert result["success"] is True, result
-    assert result["reschedule"] == {
-        "frequency": "weekly",
-        "time": "15:42",
-        "timezone": "Asia/Shanghai",
-        "schedule": "42 15 * * 1",
-    }
+    assert result["reschedule"]["frequency"] == "weekly"
+    assert result["reschedule"]["time"] == "15:42"
+    assert result["reschedule"]["timezone"] == "Asia/Shanghai"
+    assert result["reschedule"]["schedule"].startswith("42 15 * * 1")
     stored = get_job(job["id"])
     assert stored["schedule"]["expr"] == "42 15 * * 1"
-    assert stored["schedule_display"] == "42 15 * * 1"
+    assert stored["schedule_display"].startswith("42 15 * * 1")
+    assert "(Asia/Shanghai)" in stored["schedule_display"]
+    assert stored["timezone"] == "Asia/Shanghai"
     assert "Schedule label: weekly at 15:42 (Asia/Shanghai)." in stored["prompt"]
     assert "Schedule label: weekly at 09:00 (Asia/Shanghai)." not in stored["prompt"]
     assert aiseo_guard._is_aiseo_created_job(stored)

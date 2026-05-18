@@ -29,6 +29,7 @@ toolsets:
   - web
   - search
   - browser
+  - aiseo_skills_read
   - aiseo_schedule_task
   - aiseo_manage_scheduled_tasks
 
@@ -44,10 +45,10 @@ agent:
     - delegation
     - messaging
     - file
-    - skills                            # disables skills MANAGEMENT toolset
-                                        # (skills_list / skill_view / skill_manage);
-                                        # does NOT block seeds/aiseo-profile/skills/
-                                        # SKILL.md auto-scan (verify via V2).
+    - skills                            # disables the generic Hermes skills toolset
+                                        # (skills_list / skill_view / skill_manage).
+                                        # AISEO exposes read-only profile skills
+                                        # through aiseo_skills_read instead.
     - cronjob
     - image_gen
 

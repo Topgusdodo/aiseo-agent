@@ -234,6 +234,92 @@ def _tool_gate(tool_name: str = "", args: Optional[dict] = None, **kwargs: Any) 
 
 
 # ---------------------------------------------------------------------------
+# AISEO read-only skill wrappers.
+# ---------------------------------------------------------------------------
+
+AISEO_SKILLS_LIST_SCHEMA = {
+    "name": "aiseo_skills_list",
+    "description": (
+        "List AISEO profile skills by name and description. Use aiseo_skill_view(name) "
+        "to load full read-only workflow instructions before executing a matching SEO task."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "description": "Optional category filter to narrow results.",
+            },
+        },
+        "required": [],
+    },
+}
+
+AISEO_SKILL_VIEW_SCHEMA = {
+    "name": "aiseo_skill_view",
+    "description": (
+        "Load read-only AISEO profile skill instructions and linked reference files. "
+        "Use this before SEO audits, keyword research, competitor analysis, content briefs, "
+        "or recurring SEO reports when a listed skill matches the user's task."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Skill name from aiseo_skills_list or the AISEO skill index.",
+            },
+            "file_path": {
+                "type": "string",
+                "description": (
+                    "Optional linked file path within the skill, such as references/example.md. "
+                    "Omit to load the main SKILL.md content."
+                ),
+            },
+        },
+        "required": ["name"],
+    },
+}
+
+
+def _aiseo_skills_list(args: Optional[dict] = None, **kwargs: Any) -> str:
+    """Read-only wrapper for listing skills in the active AISEO profile."""
+    try:
+        args = _coerce_tool_args(args)
+        from tools.skills_tool import skills_list
+
+        return skills_list(
+            category=args.get("category"),
+            task_id=kwargs.get("task_id"),
+        )
+    except Exception as exc:
+        return _tool_error(str(exc))
+
+
+def _aiseo_skill_view(args: Optional[dict] = None, **kwargs: Any) -> str:
+    """Read-only wrapper for loading a skill from the active AISEO profile."""
+    try:
+        args = _coerce_tool_args(args)
+        # NOTE: _skill_view_with_bump is a Hermes-internal symbol (leading _).
+        # We depend on it (not the bare skill_view) so curator's view_count /
+        # last_used_at telemetry keeps updating for skills loaded through this
+        # wrapper. If upstream renames or removes it, this import will fail at
+        # runtime — update here and verify the bump regression test still fires
+        # (tests/aiseo/test_aiseo_skills_read.py::test_aiseo_skill_view_triggers_curator_bump).
+        from tools.skills_tool import _skill_view_with_bump
+
+        return _skill_view_with_bump(
+            {
+                "name": str(args.get("name") or ""),
+                "file_path": args.get("file_path"),
+            },
+            task_id=kwargs.get("task_id"),
+        )
+    except Exception as exc:
+        return _tool_error(str(exc))
+
+
+# ---------------------------------------------------------------------------
 # AISEO scheduled task tool — narrow, customer-facing cron wrapper.
 # ---------------------------------------------------------------------------
 
@@ -773,6 +859,7 @@ def _aiseo_schedule_task(args: Optional[dict] = None, **kwargs: Any) -> str:
         job = create_job(
             prompt=prompt,
             schedule=schedule,
+            timezone=timezone,
             name=name,
             deliver=None,
             origin=origin,
@@ -1102,6 +1189,7 @@ def _aiseo_manage_scheduled_tasks(args: Optional[dict] = None, **kwargs: Any) ->
                     "schedule": parsed_schedule,
                     "schedule_display": schedule_display,
                     "prompt": new_prompt,
+                    "timezone": timezone,
                 },
             )
             if not updated:
@@ -1113,6 +1201,7 @@ def _aiseo_manage_scheduled_tasks(args: Optional[dict] = None, **kwargs: Any) ->
                         "schedule": job.get("schedule"),
                         "schedule_display": job.get("schedule_display"),
                         "prompt": job.get("prompt"),
+                        "timezone": job.get("timezone"),
                     },
                 )
                 raise ValueError("Reschedule broke AISEO task metadata; rolled back.")
@@ -1335,6 +1424,20 @@ def register(ctx: Any) -> None:
     ctx.register_hook("transform_tool_result", _external_content_guard)
     ctx.register_hook("transform_llm_output", _output_gate)
     ctx.register_tool(
+        name="aiseo_skills_list",
+        toolset="aiseo_skills_read",
+        schema=AISEO_SKILLS_LIST_SCHEMA,
+        handler=lambda args, **kw: _aiseo_skills_list(args, task_id=kw.get("task_id")),
+        emoji="📚",
+    )
+    ctx.register_tool(
+        name="aiseo_skill_view",
+        toolset="aiseo_skills_read",
+        schema=AISEO_SKILL_VIEW_SCHEMA,
+        handler=lambda args, **kw: _aiseo_skill_view(args, task_id=kw.get("task_id")),
+        emoji="📚",
+    )
+    ctx.register_tool(
         name="aiseo_schedule_task",
         toolset="aiseo_schedule_task",
         schema=AISEO_SCHEDULE_TASK_SCHEMA,
@@ -1350,4 +1453,4 @@ def register(ctx: Any) -> None:
         check_fn=_check_aiseo_manage_scheduled_tasks_requirements,
         emoji="📅",
     )
-    logger.debug("aiseo-guard: registered hook handlers + AISEO scheduled task tools")
+    logger.debug("aiseo-guard: registered hook handlers + AISEO read-only skill/scheduled task tools")

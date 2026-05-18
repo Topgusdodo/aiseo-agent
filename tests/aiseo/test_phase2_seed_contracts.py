@@ -50,6 +50,17 @@ def test_soul_md_lists_all_six_phase2_skills():
         assert f"`{name}`" in body, f"SOUL.md §2 missing skill `{name}`"
 
 
+def test_soul_md_guides_aiseo_readonly_skill_loading():
+    """SOUL.md must tell AISEO to use the read-only skill wrappers for immediate tasks."""
+    body = SOUL_MD.read_text()
+    assert "aiseo_skill_view" in body
+    assert "aiseo_skills_list" in body
+    assert "只读" in body
+    assert "不要调用 `skill_view`" in body
+    assert "`skills_list`" in body
+    assert "`skill_manage`" in body
+
+
 def test_soul_md_blocks_terminal_shell_implication_s5_03():
     """SOUL.md §3 must contain the S5-03 fix: never imply terminal/shell/exec."""
     body = SOUL_MD.read_text()
@@ -180,6 +191,14 @@ def test_aiseo_profile_enables_safe_scheduler_not_generic_cronjob():
     assert "  - aiseo_manage_scheduled_tasks" in body
     disabled_block = body.split("disabled_toolsets:", 1)[1]
     assert "    - cronjob" in disabled_block
+
+
+def test_aiseo_profile_enables_readonly_skills_not_generic_skills():
+    """AISEO profile exposes read-only skill wrappers while keeping generic skills disabled."""
+    body = (SEED_ROOT / "config.yaml").read_text()
+    assert "  - aiseo_skills_read" in body
+    disabled_block = body.split("disabled_toolsets:", 1)[1]
+    assert "    - skills" in disabled_block
 
 
 @pytest.mark.parametrize("json_path", sorted(CRON_DIR.glob("*.json")))

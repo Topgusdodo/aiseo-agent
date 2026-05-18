@@ -38,7 +38,9 @@ def test_schedule_task_creates_origin_delivered_technical_audit(aiseo_guard, tmp
     job = result["job"]
     assert job["task_type"] == "technical_audit"
     assert job["site_url"] == "https://lazseo.com/"
-    assert job["schedule"] == "30 9 * * 1"
+    assert job["schedule"].startswith("30 9 * * 1")
+    assert "(Asia/Shanghai)" in job["schedule"]
+    assert job["timezone"] == "Asia/Shanghai"
     assert job["deliver"] == "origin"
     assert job["origin"]["platform"] == "telegram"
     assert job["origin"]["chat_id"] == "123"
@@ -64,7 +66,7 @@ def test_schedule_task_monthly_uses_monthly_cron(aiseo_guard, tmp_path, monkeypa
     )
 
     assert result["success"] is True
-    assert result["job"]["schedule"] == "0 8 1 * *"
+    assert result["job"]["schedule"].startswith("0 8 1 * *")
     assert result["job"]["deliver"] == "local"
     assert result["job"]["skills"] == ["seo-weekly-report"]
 
@@ -252,7 +254,7 @@ def test_aiseo_schedule_task_hourly_cron_expr(aiseo_guard, tmp_path, monkeypatch
     assert job["frequency"] == "hourly"
     # Sub-daily cadence: cron only carries MM; the displayed HH:MM stays in the
     # job's prompt for human readability.
-    assert job["schedule"] == "30 * * * *"
+    assert job["schedule"].startswith("30 * * * *")
     assert job["time"] == "09:30"
 
 
@@ -276,7 +278,7 @@ def test_aiseo_schedule_task_every_6h_cron_expr(aiseo_guard, tmp_path, monkeypat
     job = result["job"]
     assert job["frequency"] == "every_6h"
     # every_6h fires every 6 hours anchored to the submitted HH:MM.
-    assert job["schedule"] == "15 3,9,15,21 * * *"
+    assert job["schedule"].startswith("15 3,9,15,21 * * *")
     assert job["time"] == "09:15"
 
 
@@ -299,7 +301,7 @@ def test_aiseo_schedule_task_every_12h_cron_expr(aiseo_guard, tmp_path, monkeypa
     assert result["success"] is True, result
     job = result["job"]
     assert job["frequency"] == "every_12h"
-    assert job["schedule"] == "45 9,21 * * *"
+    assert job["schedule"].startswith("45 9,21 * * *")
     assert job["time"] == "09:45"
 
 
@@ -394,4 +396,6 @@ def test_aiseo_schedule_task_all_frequencies_produce_canonical_cron(
 
     assert result["success"] is True, result
     assert result["job"]["frequency"] == frequency
-    assert result["job"]["schedule"] == expected_expr
+    assert result["job"]["schedule"].startswith(expected_expr)
+    # All schedules carry the (timezone) suffix on the display field now.
+    assert "(Asia/Shanghai)" in result["job"]["schedule"]

@@ -200,6 +200,18 @@ def test_tg_blocks_generic_cronjob_but_allows_aiseo_scheduler(aiseo_guard):
     assert result is None, f"aiseo_manage_scheduled_tasks must passthrough, got {result!r}"
 
 
+def test_tg_blocks_generic_skills_but_allows_aiseo_readonly_wrappers(aiseo_guard):
+    """AISEO keeps generic skills blocked while exposing read-only profile skill wrappers."""
+    assert _is_block(aiseo_guard._tool_gate("skills_list", {}))
+    assert _is_block(aiseo_guard._tool_gate("skill_view", {"name": "growflare-seo"}))
+    assert _is_block(aiseo_guard._tool_gate("skill_manage", {"action": "list"}))
+
+    result = aiseo_guard._tool_gate("aiseo_skills_list", {})
+    assert result is None, f"aiseo_skills_list must passthrough, got {result!r}"
+    result = aiseo_guard._tool_gate("aiseo_skill_view", {"name": "growflare-seo"})
+    assert result is None, f"aiseo_skill_view must passthrough, got {result!r}"
+
+
 # ---------------------------------------------------------------------------
 # A4 / C3 — OutputGate must mirror agent/redact.py vendor PAT prefixes
 # ---------------------------------------------------------------------------

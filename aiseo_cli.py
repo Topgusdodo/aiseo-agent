@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
+
+from utils import atomic_replace
+
+logger = logging.getLogger(__name__)
 
 
 AISEO_HELP = """AISEO Agent — SEO 战略 / 技术审计 / 内容运营 advisor
@@ -67,6 +73,10 @@ NEVER_OVERWRITE_FILES: tuple[str, ...] = (
     "auth.lock",
 )
 
+AISEO_REQUIRED_TOOLSETS: tuple[str, ...] = (
+    "aiseo_skills_read",
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent
@@ -121,10 +131,211 @@ def _sync_profile(force: bool = False) -> dict[str, list[str]]:
         else:
             _sync_top_level_file(child, target, diff)
 
+    _migrate_profile_config(profile_dir / "config.yaml", diff)
+
     # `force` is currently advisory only — the never-overwrite list is honored
     # regardless. Touched here to keep linters happy and document intent.
     _ = force
     return diff
+
+
+# Matches a top-level ``toolsets:`` key. Anchored to start-of-line (MULTILINE)
+# so nested keys like ``agent:\n  toolsets:`` are NOT matched — only a key with
+# zero leading whitespace counts as top-level YAML.
+_TOP_LEVEL_TOOLSETS_RE = re.compile(r"^toolsets:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE)
+
+# Matches a single list item line under ``toolsets:``. YAML allows two valid
+# block-list styles under a mapping key:
+#   toolsets:        toolsets:
+#   - web              - web
+#   - search           - search
+# Both 0-indent ("zero leading whitespace") and N-indent ("nested under the
+# key") are legal. The regex accepts ``*`` (0+) leading whitespace so both
+# styles are recognized. Used both to detect the end of the toolsets block
+# (first non-item line) and to assert ``aiseo_skills_read`` membership.
+_TOOLSETS_ITEM_RE = re.compile(r"^[ \t]*-[ \t]*[^\s#][^\n]*\n", re.MULTILINE)
+
+# Fallback indentation when the toolsets block is empty (no existing items
+# to copy style from). The migration always prefers to mirror the existing
+# items' indent string; this only kicks in when there are zero items.
+_TOOLSETS_ITEM_INDENT = "  "
+
+
+def _find_top_level_toolsets_block(content: str) -> "tuple[int, int] | None":
+    """Locate the byte range of the top-level ``toolsets:`` list body.
+
+    Returns ``(items_start, items_end)`` where ``items_start`` is the offset of
+    the first character after the ``toolsets:`` header line, and ``items_end``
+    is the offset of the first character that is NOT a list item line (or the
+    end of the string). Returns ``None`` when no top-level ``toolsets:`` key is
+    present, when the key is followed by an inline scalar (``toolsets: web``),
+    or when the block is empty / non-list-shaped.
+    """
+    header = _TOP_LEVEL_TOOLSETS_RE.search(content)
+    if header is None:
+        return None
+    items_start = header.end()
+
+    cursor = items_start
+    saw_item = False
+    while cursor < len(content):
+        # Blank lines and full-line comments are tolerated INSIDE the list
+        # (yaml allows them and users put explanatory comments between items).
+        line_end = content.find("\n", cursor)
+        if line_end == -1:
+            line_end = len(content)
+        line = content[cursor:line_end]
+        stripped = line.strip()
+
+        if not stripped or stripped.startswith("#"):
+            cursor = line_end + 1
+            continue
+
+        item_match = _TOOLSETS_ITEM_RE.match(content, cursor)
+        if item_match is None:
+            break
+        saw_item = True
+        cursor = item_match.end()
+
+    if not saw_item:
+        return None
+    return items_start, cursor
+
+
+def _migrate_profile_config(config_path: Path, diff: dict[str, list[str]]) -> bool:
+    """Apply safe missing-only config migrations for existing AISEO profiles.
+
+    ``config.yaml`` is user state and is never overwritten by seed sync, but
+    product-level toolset additions still need to reach existing profiles.
+    The migration is **text-level only** — it never parses YAML — so user
+    comments, blank lines, and field order are preserved byte-for-byte.
+
+    Strategy:
+      1. Read the file as UTF-8 text. Missing file → silent skip (fresh install).
+      2. Locate the top-level ``toolsets:`` block via regex (rejects nested
+         ``agent.toolsets`` and inline-scalar shapes).
+      3. If ``- aiseo_skills_read`` is already present in that block → no-op
+         (idempotent).
+      4. Otherwise append ``  - aiseo_skills_read`` at the end of the block,
+         backup the original to ``config.yaml.bak``, and write the new content
+         atomically (tmp file + fsync + ``atomic_replace``).
+
+    Returns:
+        ``True`` when a write occurred; ``False`` otherwise (no-op or skip).
+        The ``diff`` dict is updated with one entry per migration outcome so
+        ``aiseo sync`` can surface it to the user.
+    """
+    if not config_path.exists():
+        return False
+
+    try:
+        content = config_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        logger.warning(
+            "AISEO config migration: %s is not valid UTF-8; skipping",
+            config_path,
+        )
+        diff["skipped"].append("config.yaml:migration-non-utf8")
+        return False
+    except OSError as exc:
+        logger.error(
+            "AISEO config migration: failed to read %s: %s",
+            config_path,
+            exc,
+        )
+        diff["skipped"].append("config.yaml:migration-unreadable")
+        return False
+
+    block = _find_top_level_toolsets_block(content)
+    if block is None:
+        # `toolsets:` is missing, nested, or non-list. Don't guess at the
+        # structure — safer to skip and let the user re-run `aiseo setup`.
+        logger.warning(
+            "AISEO config migration: top-level `toolsets:` list not found in %s; "
+            "skipping (run `aiseo setup` if the profile is misconfigured)",
+            config_path,
+        )
+        diff["skipped"].append("config.yaml:toolsets-not-list")
+        return False
+
+    items_start, items_end = block
+    items_body = content[items_start:items_end]
+
+    # Mirror the user's existing list-item indent style when appending new
+    # items. YAML allows both 0-indent (``- web`` flush left) and N-indent
+    # (``  - web`` nested) under a mapping key; we preserve whichever the
+    # user has chosen so the file stays visually consistent.
+    first_item = re.search(r"^([ \t]*)-", items_body, re.MULTILINE)
+    indent = first_item.group(1) if first_item else _TOOLSETS_ITEM_INDENT
+
+    changed = False
+    appended: list[str] = []
+    for toolset in AISEO_REQUIRED_TOOLSETS:
+        item_re = re.compile(
+            rf"^[ \t]*-[ \t]*{re.escape(toolset)}\s*(?:#[^\n]*)?$",
+            re.MULTILINE,
+        )
+        if item_re.search(items_body):
+            continue
+        items_body += f"{indent}- {toolset}\n"
+        appended.append(toolset)
+        diff["added"].append(f"config.yaml:toolsets/{toolset}")
+        changed = True
+
+    if not changed:
+        return False
+
+    new_content = content[:items_start] + items_body + content[items_end:]
+
+    # M_new1: belt-and-suspenders backup before any destructive write. Overwrite
+    # any pre-existing .bak — the previous migration's snapshot is stale once a
+    # newer migration has run successfully, so retaining it would mislead.
+    backup_path = config_path.with_suffix(".yaml.bak")
+    try:
+        shutil.copy2(config_path, backup_path)
+    except OSError as exc:
+        logger.error(
+            "AISEO config migration: failed to back up %s to %s: %s",
+            config_path,
+            backup_path,
+            exc,
+        )
+        # Roll back the diff bookkeeping so the user sees the skip, not a phantom add.
+        for toolset in appended:
+            diff["added"].remove(f"config.yaml:toolsets/{toolset}")
+        diff["skipped"].append("config.yaml:backup-failed")
+        return False
+
+    # H_new2: atomic write via tmp file + fsync + atomic_replace. Mirrors the
+    # pattern proven in cron/jobs.py::save_jobs so crashes mid-write leave the
+    # original config intact rather than truncated.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(config_path.parent),
+        prefix=f".{config_path.stem}_",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_content)
+            f.flush()
+            os.fsync(f.fileno())
+        atomic_replace(tmp_path, config_path)
+    except BaseException as exc:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        logger.error(
+            "AISEO config migration: atomic write to %s failed: %s",
+            config_path,
+            exc,
+        )
+        for toolset in appended:
+            diff["added"].remove(f"config.yaml:toolsets/{toolset}")
+        diff["skipped"].append("config.yaml:atomic-write-failed")
+        return False
+
+    return True
 
 
 def _sync_skills_dir(

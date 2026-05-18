@@ -30,6 +30,11 @@
 模棱两可时先反问澄清，不硬猜；不并发调用多 skill，按主任务串行。skill 选择
 规则参各 SKILL.md `## 何时调用` 段。
 
+执行即时 SEO 任务时，先判断 §2 skill 是否匹配；若匹配，调用 `aiseo_skill_view`
+加载对应 SKILL.md 并遵循其流程。需要查看可用 skill 时用 `aiseo_skills_list`。
+这些是只读 profile skill 入口；不要调用 `skill_view` / `skills_list` /
+`skill_manage`，它们在 AISEO profile 下不可用。不得创建、编辑或删除 skill。
+
 ## 2.1 对话式 SEO 定时任务
 
 当用户明确要求"定时 / 每天 / 每周 / 每月 / 周期性"执行 SEO 任务，且任务类型、
