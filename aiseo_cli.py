@@ -9,7 +9,10 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
+
+import yaml
 
 from utils import atomic_replace
 
@@ -73,9 +76,24 @@ NEVER_OVERWRITE_FILES: tuple[str, ...] = (
     "auth.lock",
 )
 
-AISEO_REQUIRED_TOOLSETS: tuple[str, ...] = (
-    "aiseo_skills_read",
+# Seed-derived list fields that `_migrate_profile_config` will additively
+# append to the user's profile config.yaml on every sync. The seed file is
+# the single source of truth — when a new entry appears here in the seed,
+# it propagates to old profiles automatically. Never deletes, never replaces.
+#
+# Add new dotted paths here when the seed introduces a new list-valued field
+# that product changes (toolsets, plugins, disabled defenses) need to reach
+# existing users through.
+SEED_TRACKED_LIST_FIELDS: tuple[str, ...] = (
+    "toolsets",
+    "agent.disabled_toolsets",
+    "plugins.enabled",
 )
+
+# Rolling backup retention for config.yaml mutations. Each successful write
+# creates one timestamped .bak.<YYYYMMDD_HHMMSS> snapshot; older snapshots
+# beyond this count are pruned.
+MAX_CONFIG_BACKUPS = 5
 
 
 def _repo_root() -> Path:
@@ -131,7 +149,11 @@ def _sync_profile(force: bool = False) -> dict[str, list[str]]:
         else:
             _sync_top_level_file(child, target, diff)
 
-    _migrate_profile_config(profile_dir / "config.yaml", diff)
+    _migrate_profile_config(
+        seed_dir / "config.yaml",
+        profile_dir / "config.yaml",
+        diff,
+    )
 
     # `force` is currently advisory only — the never-overwrite list is honored
     # regardless. Touched here to keep linters happy and document intent.
@@ -139,187 +161,369 @@ def _sync_profile(force: bool = False) -> dict[str, list[str]]:
     return diff
 
 
-# Matches a top-level ``toolsets:`` key. Anchored to start-of-line (MULTILINE)
-# so nested keys like ``agent:\n  toolsets:`` are NOT matched — only a key with
-# zero leading whitespace counts as top-level YAML.
-_TOP_LEVEL_TOOLSETS_RE = re.compile(r"^toolsets:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE)
+# Matches a YAML list item line at any indent: ``  - foo`` or ``- foo``.
+# Used to detect end-of-list (first non-item line) and to extract item values.
+# Tolerates trailing inline comments (``- foo  # note``).
+_LIST_ITEM_LINE_RE = re.compile(r"^[ \t]*-[ \t]+(\S[^\n]*?)[ \t]*(?:#[^\n]*)?$", re.MULTILINE)
 
-# Matches a single list item line under ``toolsets:``. YAML allows two valid
-# block-list styles under a mapping key:
-#   toolsets:        toolsets:
-#   - web              - web
-#   - search           - search
-# Both 0-indent ("zero leading whitespace") and N-indent ("nested under the
-# key") are legal. The regex accepts ``*`` (0+) leading whitespace so both
-# styles are recognized. Used both to detect the end of the toolsets block
-# (first non-item line) and to assert ``aiseo_skills_read`` membership.
-_TOOLSETS_ITEM_RE = re.compile(r"^[ \t]*-[ \t]*[^\s#][^\n]*\n", re.MULTILINE)
-
-# Fallback indentation when the toolsets block is empty (no existing items
-# to copy style from). The migration always prefers to mirror the existing
-# items' indent string; this only kicks in when there are zero items.
-_TOOLSETS_ITEM_INDENT = "  "
+# Fallback indentation when a list block is empty (no existing items to mirror).
+_FALLBACK_LIST_INDENT = "  "
 
 
-def _find_top_level_toolsets_block(content: str) -> "tuple[int, int] | None":
-    """Locate the byte range of the top-level ``toolsets:`` list body.
+def _find_list_block(text: str, dotted: str) -> "tuple[int, int, str] | None":
+    """Locate the body of a YAML list at a dotted path.
 
-    Returns ``(items_start, items_end)`` where ``items_start`` is the offset of
-    the first character after the ``toolsets:`` header line, and ``items_end``
-    is the offset of the first character that is NOT a list item line (or the
-    end of the string). Returns ``None`` when no top-level ``toolsets:`` key is
-    present, when the key is followed by an inline scalar (``toolsets: web``),
-    or when the block is empty / non-list-shaped.
+    Supports up to one level of nesting:
+      - ``"toolsets"``                — top-level list
+      - ``"agent.disabled_toolsets"`` — list nested one level under ``agent:``
+      - ``"plugins.enabled"``         — list nested one level under ``plugins:``
+
+    Returns ``(items_start, items_end, item_indent)`` where:
+      - ``items_start`` is the byte offset of the first character after the
+        leaf key's header line (start of where items live).
+      - ``items_end`` is the offset of the first non-blank/non-comment/non-item
+        line (or end of text).
+      - ``item_indent`` is the leading whitespace mirrored from the FIRST
+        existing item in the block; falls back to leaf_key_indent + 2 spaces
+        when the list is empty, then ``_FALLBACK_LIST_INDENT`` if nesting
+        cannot be inferred.
+
+    Returns ``None`` when:
+      - the key (or its parent) is absent at the expected indent
+      - the value is an inline scalar (``toolsets: web``) or inline array
+        (``toolsets: [a, b]``) — neither is a parseable block list
+      - YAML anchors / aliases (``&`` / ``*``) appear in the block body
     """
-    header = _TOP_LEVEL_TOOLSETS_RE.search(content)
+    parts = dotted.split(".")
+    if len(parts) > 2:
+        # Phase 1 only needs depth ≤ 2. Refuse silently to avoid wrong guesses.
+        return None
+
+    if "&" in text or "*" in text:
+        # YAML anchors / aliases are rare in hand-edited configs but would
+        # corrupt text-level edits. The check is intentionally broad — if any
+        # anchor/alias char exists anywhere, we skip the whole migration for
+        # this field. False positives are acceptable (warn + no-op).
+        if _has_yaml_anchor(text):
+            return None
+
+    if len(parts) == 1:
+        return _find_top_level_list(text, parts[0])
+
+    # Nested (depth 2): find parent first, narrow window to its block, then
+    # locate leaf inside the window.
+    parent_key = parts[0]
+    leaf_key = parts[1]
+    parent_re = re.compile(
+        rf"^{re.escape(parent_key)}:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE
+    )
+    parent_match = parent_re.search(text)
+    if parent_match is None:
+        return None
+
+    window_start = parent_match.end()
+    window_end = _find_block_end(text, window_start, parent_indent=0)
+
+    # Leaf key at ANY positive indent — don't pin to 2-space convention since
+    # users may use tabs or 4-space indentation.
+    leaf_re = re.compile(
+        rf"^([ \t]+){re.escape(leaf_key)}:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE
+    )
+    leaf_match = leaf_re.search(text, window_start, window_end)
+    if leaf_match is None:
+        return None
+
+    leaf_indent = leaf_match.group(1)
+    items_start = leaf_match.end()
+    items_end = _scan_list_items_end(text, items_start, parent_indent=len(leaf_indent))
+    item_indent = _detect_item_indent(text, items_start, items_end, leaf_indent)
+    return items_start, items_end, item_indent
+
+
+def _find_top_level_list(text: str, key: str) -> "tuple[int, int, str] | None":
+    """Top-level (zero-indent) list block locator. Internal helper of `_find_list_block`."""
+    header_re = re.compile(rf"^{re.escape(key)}:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE)
+    header = header_re.search(text)
     if header is None:
         return None
     items_start = header.end()
+    items_end = _scan_list_items_end(text, items_start, parent_indent=0)
+    item_indent = _detect_item_indent(text, items_start, items_end, leaf_indent="")
+    return items_start, items_end, item_indent
 
-    cursor = items_start
-    saw_item = False
-    while cursor < len(content):
-        # Blank lines and full-line comments are tolerated INSIDE the list
-        # (yaml allows them and users put explanatory comments between items).
-        line_end = content.find("\n", cursor)
+
+def _scan_list_items_end(text: str, start: int, parent_indent: int) -> int:
+    """Find offset where a list block ends.
+
+    Walks forward from ``start``, tolerating blank lines and full-line comments,
+    consuming list-item lines until the first line that is none of those AND
+    has indent ≤ parent_indent (i.e. a sibling/parent key, end of this block).
+
+    For top-level lists ``parent_indent`` is 0; any non-item line ends the block.
+    """
+    cursor = start
+    while cursor < len(text):
+        line_end = text.find("\n", cursor)
         if line_end == -1:
-            line_end = len(content)
-        line = content[cursor:line_end]
+            line_end = len(text)
+        line = text[cursor:line_end]
         stripped = line.strip()
 
         if not stripped or stripped.startswith("#"):
             cursor = line_end + 1
             continue
 
-        item_match = _TOOLSETS_ITEM_RE.match(content, cursor)
-        if item_match is None:
-            break
-        saw_item = True
-        cursor = item_match.end()
+        # Is this a list item line?
+        if re.match(r"^[ \t]*-[ \t\n]", line + "\n") or re.match(r"^[ \t]*-$", line):
+            cursor = line_end + 1
+            continue
 
-    if not saw_item:
+        # Non-blank, non-comment, non-item: end of block.
+        indent = len(line) - len(line.lstrip())
+        if indent <= parent_indent:
+            return cursor
+        # Deeper indent of a non-list line shouldn't happen in valid YAML,
+        # but be defensive — treat it as end-of-block to avoid swallowing
+        # nested structures.
+        return cursor
+    return cursor
+
+
+def _find_block_end(text: str, start: int, parent_indent: int) -> int:
+    """Find offset where a *mapping* block ends — first sibling/parent key.
+
+    Different from `_scan_list_items_end`: this is for the value-region under
+    a mapping key (where children are key:value pairs, not list items).
+    """
+    cursor = start
+    while cursor < len(text):
+        line_end = text.find("\n", cursor)
+        if line_end == -1:
+            line_end = len(text)
+        line = text[cursor:line_end]
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            indent = len(line) - len(line.lstrip())
+            if indent <= parent_indent:
+                return cursor
+        cursor = line_end + 1
+    return cursor
+
+
+def _detect_item_indent(text: str, items_start: int, items_end: int, leaf_indent: str) -> str:
+    """Pick the indent string for appending new items.
+
+    Priority:
+      1. First existing item's indent (preserve user style).
+      2. ``leaf_indent`` + 2 spaces (typical YAML convention).
+      3. ``_FALLBACK_LIST_INDENT``.
+    """
+    body = text[items_start:items_end]
+    first = re.search(r"^([ \t]*)-", body, re.MULTILINE)
+    if first:
+        return first.group(1)
+    if leaf_indent or leaf_indent == "":
+        # Nested: indent two spaces deeper than the leaf key.
+        # Top-level (leaf_indent=""): items typically flush-left or 2-indented;
+        # default to 2-indent for consistency with the seed style.
+        return leaf_indent + "  "
+    return _FALLBACK_LIST_INDENT
+
+
+def _parse_list_items(text: str, items_start: int, items_end: int) -> "list[str] | None":
+    """Extract item values from a list block. Returns ``None`` on shape mismatch."""
+    items: list[str] = []
+    body = text[items_start:items_end]
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _LIST_ITEM_LINE_RE.match(line + "\n")
+        if match is None:
+            # Lines that look like `-` with no value, or malformed — skip.
+            # The block-locator already filtered the non-list-shape case; this
+            # is just defensive.
+            continue
+        items.append(match.group(1).strip())
+    return items
+
+
+def _has_yaml_anchor(text: str) -> bool:
+    """Return True if YAML anchor or alias syntax appears outside strings.
+
+    Conservative scan: looks for ``&name`` or ``*name`` tokens at value
+    positions. False positives are acceptable (caller treats as "skip").
+    """
+    return bool(
+        re.search(r":\s+[&*][A-Za-z_]\w*", text)
+        or re.search(r"^\s*-\s+[&*][A-Za-z_]\w*", text, re.MULTILINE)
+    )
+
+
+def _rolling_backup(target: Path, max_keep: int = MAX_CONFIG_BACKUPS) -> "Path | None":
+    """Snapshot ``target`` to a timestamped ``.bak.<YYYYMMDD_HHMMSS>`` sibling.
+
+    Prunes older backups beyond ``max_keep``. Also cleans up legacy
+    single-slot ``config.yaml.bak`` files (no timestamp suffix) created by
+    pre-Phase-1 versions. Returns the new backup path, or ``None`` on failure.
+    """
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    # `with_suffix` strips one extension — we want config.yaml → config.yaml.bak.<ts>.
+    backup_path = target.parent / f"{target.name}.bak.{timestamp}"
+    try:
+        shutil.copy2(target, backup_path)
+    except OSError as exc:
+        logger.error(
+            "AISEO config migration: backup to %s failed: %s", backup_path, exc
+        )
         return None
-    return items_start, cursor
+
+    # Prune: glob matches both legacy single-slot bak and new timestamped baks.
+    # Sort by FILENAME (not mtime): shutil.copy2 preserves the source's mtime,
+    # so multiple backups taken in quick succession share an identical mtime
+    # and the sort would be non-deterministic. Filename-based sort is reliable
+    # because our naming convention encodes the timestamp in lexicographic order
+    # — and the legacy `config.yaml.bak` (no suffix) sorts BEFORE any timestamped
+    # sibling, so it gets pruned first when over capacity.
+    siblings = sorted(
+        target.parent.glob(f"{target.name}.bak*"),
+        reverse=True,
+    )
+    for old in siblings[max_keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return backup_path
 
 
-def _migrate_profile_config(config_path: Path, diff: dict[str, list[str]]) -> bool:
-    """Apply safe missing-only config migrations for existing AISEO profiles.
+def _migrate_profile_config(
+    seed_cfg_path: Path,
+    profile_cfg_path: Path,
+    diff: dict[str, list[str]],
+) -> bool:
+    """Additively propagate seed list-field entries into the user's profile config.
 
-    ``config.yaml`` is user state and is never overwritten by seed sync, but
-    product-level toolset additions still need to reach existing profiles.
-    The migration is **text-level only** — it never parses YAML — so user
-    comments, blank lines, and field order are preserved byte-for-byte.
+    For each path in ``SEED_TRACKED_LIST_FIELDS``, compare the seed's list against
+    the profile's; append any items the seed has but the profile is missing.
+    Never deletes, never replaces scalars, never re-orders. The migration is
+    **text-level** on the profile file — user comments, blank lines, and field
+    order are preserved byte-for-byte.
 
     Strategy:
-      1. Read the file as UTF-8 text. Missing file → silent skip (fresh install).
-      2. Locate the top-level ``toolsets:`` block via regex (rejects nested
-         ``agent.toolsets`` and inline-scalar shapes).
-      3. If ``- aiseo_skills_read`` is already present in that block → no-op
-         (idempotent).
-      4. Otherwise append ``  - aiseo_skills_read`` at the end of the block,
-         backup the original to ``config.yaml.bak``, and write the new content
-         atomically (tmp file + fsync + ``atomic_replace``).
+      1. Profile missing → fresh install, skip (the seed will be copied by
+         ``_sync_top_level_file`` separately).
+      2. Read seed via ``yaml.safe_load`` (read-only — we never write to seed).
+      3. Read profile as UTF-8 text.
+      4. For each tracked field, locate the list block in the profile text and
+         compute the set-difference seed - profile.
+      5. If anything is missing, append items with a ``# auto-added by aiseo
+         sync <date>`` trailing comment so users can audit what changed.
+      6. If changed: rolling timestamped backup + atomic write.
 
-    Returns:
-        ``True`` when a write occurred; ``False`` otherwise (no-op or skip).
-        The ``diff`` dict is updated with one entry per migration outcome so
-        ``aiseo sync`` can surface it to the user.
+    Failure modes (each reported in ``diff["skipped"]``):
+      - ``config.yaml:migration-non-utf8`` — profile not valid UTF-8
+      - ``config.yaml:seed-unparseable`` — seed cannot be yaml-loaded
+      - ``config.yaml:<field>:block-not-found`` — field absent in profile
+      - ``config.yaml:backup-failed`` / ``:atomic-write-failed`` — IO failures
     """
-    if not config_path.exists():
+    if not profile_cfg_path.exists():
         return False
 
     try:
-        content = config_path.read_text(encoding="utf-8")
+        text = profile_cfg_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         logger.warning(
             "AISEO config migration: %s is not valid UTF-8; skipping",
-            config_path,
+            profile_cfg_path,
         )
         diff["skipped"].append("config.yaml:migration-non-utf8")
         return False
     except OSError as exc:
         logger.error(
-            "AISEO config migration: failed to read %s: %s",
-            config_path,
-            exc,
+            "AISEO config migration: failed to read %s: %s", profile_cfg_path, exc
         )
         diff["skipped"].append("config.yaml:migration-unreadable")
         return False
 
-    block = _find_top_level_toolsets_block(content)
-    if block is None:
-        # `toolsets:` is missing, nested, or non-list. Don't guess at the
-        # structure — safer to skip and let the user re-run `aiseo setup`.
-        logger.warning(
-            "AISEO config migration: top-level `toolsets:` list not found in %s; "
-            "skipping (run `aiseo setup` if the profile is misconfigured)",
-            config_path,
-        )
-        diff["skipped"].append("config.yaml:toolsets-not-list")
+    if not seed_cfg_path.exists():
         return False
-
-    items_start, items_end = block
-    items_body = content[items_start:items_end]
-
-    # Mirror the user's existing list-item indent style when appending new
-    # items. YAML allows both 0-indent (``- web`` flush left) and N-indent
-    # (``  - web`` nested) under a mapping key; we preserve whichever the
-    # user has chosen so the file stays visually consistent.
-    first_item = re.search(r"^([ \t]*)-", items_body, re.MULTILINE)
-    indent = first_item.group(1) if first_item else _TOOLSETS_ITEM_INDENT
-
-    changed = False
-    appended: list[str] = []
-    for toolset in AISEO_REQUIRED_TOOLSETS:
-        item_re = re.compile(
-            rf"^[ \t]*-[ \t]*{re.escape(toolset)}\s*(?:#[^\n]*)?$",
-            re.MULTILINE,
-        )
-        if item_re.search(items_body):
-            continue
-        items_body += f"{indent}- {toolset}\n"
-        appended.append(toolset)
-        diff["added"].append(f"config.yaml:toolsets/{toolset}")
-        changed = True
-
-    if not changed:
-        return False
-
-    new_content = content[:items_start] + items_body + content[items_end:]
-
-    # M_new1: belt-and-suspenders backup before any destructive write. Overwrite
-    # any pre-existing .bak — the previous migration's snapshot is stale once a
-    # newer migration has run successfully, so retaining it would mislead.
-    backup_path = config_path.with_suffix(".yaml.bak")
     try:
-        shutil.copy2(config_path, backup_path)
-    except OSError as exc:
-        logger.error(
-            "AISEO config migration: failed to back up %s to %s: %s",
-            config_path,
-            backup_path,
+        seed_data = yaml.safe_load(seed_cfg_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, UnicodeDecodeError, OSError) as exc:
+        logger.warning(
+            "AISEO config migration: seed %s unparseable: %s",
+            seed_cfg_path,
             exc,
         )
-        # Roll back the diff bookkeeping so the user sees the skip, not a phantom add.
-        for toolset in appended:
-            diff["added"].remove(f"config.yaml:toolsets/{toolset}")
+        diff["skipped"].append("config.yaml:seed-unparseable")
+        return False
+
+    today = time.strftime("%Y-%m-%d")
+    new_text = text
+    appended_records: list[tuple[str, str]] = []  # (dotted, item)
+
+    for dotted in SEED_TRACKED_LIST_FIELDS:
+        seed_items = _get_dotted(seed_data, dotted)
+        if not isinstance(seed_items, list) or not seed_items:
+            continue
+        # Seed items must be strings to match the profile text-parser output.
+        seed_items_str = [str(x) for x in seed_items if isinstance(x, (str, int, float))]
+
+        block = _find_list_block(new_text, dotted)
+        if block is None:
+            diff["skipped"].append(f"config.yaml:{dotted}:block-not-found")
+            continue
+
+        items_start, items_end, item_indent = block
+        profile_items = _parse_list_items(new_text, items_start, items_end)
+        if profile_items is None:
+            diff["skipped"].append(f"config.yaml:{dotted}:non-list-shape")
+            continue
+
+        missing = [x for x in seed_items_str if x not in profile_items]
+        if not missing:
+            continue
+
+        # Build the appended text. Preserve a trailing newline guarantee:
+        # `items_end` points to the start of the line AFTER the last item, so
+        # we can safely insert right at items_end.
+        addition = "".join(
+            f"{item_indent}- {item}  # auto-added by aiseo sync {today}\n"
+            for item in missing
+        )
+        new_text = new_text[:items_end] + addition + new_text[items_end:]
+
+        for item in missing:
+            appended_records.append((dotted, item))
+            diff["added"].append(f"config.yaml:{dotted}/{item}")
+
+    if not appended_records:
+        return False
+
+    backup = _rolling_backup(profile_cfg_path)
+    if backup is None:
+        # Backup failed — roll back diff bookkeeping so we don't pretend we wrote.
+        for dotted, item in appended_records:
+            try:
+                diff["added"].remove(f"config.yaml:{dotted}/{item}")
+            except ValueError:
+                pass
         diff["skipped"].append("config.yaml:backup-failed")
         return False
 
-    # H_new2: atomic write via tmp file + fsync + atomic_replace. Mirrors the
-    # pattern proven in cron/jobs.py::save_jobs so crashes mid-write leave the
-    # original config intact rather than truncated.
+    # Atomic write: tmp file + fsync + atomic_replace.
     fd, tmp_path = tempfile.mkstemp(
-        dir=str(config_path.parent),
-        prefix=f".{config_path.stem}_",
+        dir=str(profile_cfg_path.parent),
+        prefix=f".{profile_cfg_path.stem}_",
         suffix=".tmp",
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(new_content)
+            f.write(new_text)
             f.flush()
             os.fsync(f.fileno())
-        atomic_replace(tmp_path, config_path)
+        atomic_replace(tmp_path, profile_cfg_path)
     except BaseException as exc:
         try:
             os.unlink(tmp_path)
@@ -327,15 +531,28 @@ def _migrate_profile_config(config_path: Path, diff: dict[str, list[str]]) -> bo
             pass
         logger.error(
             "AISEO config migration: atomic write to %s failed: %s",
-            config_path,
+            profile_cfg_path,
             exc,
         )
-        for toolset in appended:
-            diff["added"].remove(f"config.yaml:toolsets/{toolset}")
+        for dotted, item in appended_records:
+            try:
+                diff["added"].remove(f"config.yaml:{dotted}/{item}")
+            except ValueError:
+                pass
         diff["skipped"].append("config.yaml:atomic-write-failed")
         return False
 
     return True
+
+
+def _get_dotted(data: dict, dotted: str) -> object:
+    """Walk a dict by dotted path; return ``None`` if any segment is missing."""
+    cursor: object = data
+    for segment in dotted.split("."):
+        if not isinstance(cursor, dict):
+            return None
+        cursor = cursor.get(segment)
+    return cursor
 
 
 def _sync_skills_dir(
@@ -437,8 +654,194 @@ def _bootstrap_profile() -> None:
         )
 
 
-def _run_sync_command() -> None:
-    """Handle ``aiseo sync`` — run idempotent sync and print full diff to stdout."""
+def _refresh_soul_from_seed(
+    profile_dir: Path,
+    seed_dir: Path,
+    interactive: bool = True,
+) -> bool:
+    """Back up and overwrite the profile's SOUL.md from the seed.
+
+    SOUL.md drifts from seed when the seed gets new behavioral directives but
+    sync's missing-only protection keeps the old profile copy in place. This is
+    the explicit escape hatch — opt-in via ``aiseo sync --refresh-soul``.
+
+    Backs up the current SOUL.md to ``SOUL.md.bak.<YYYYMMDD_HHMMSS>`` (so
+    repeated calls don't clobber prior backups), then copies the seed version
+    over. Returns ``True`` on success, ``False`` on user-cancel or IO failure.
+
+    When ``interactive`` is True (default), prints a line-count diff summary
+    and prompts ``Continue? [y/N]:``. ``-y / --yes`` flips ``interactive`` off.
+    """
+    source = seed_dir / "SOUL.md"
+    target = profile_dir / "SOUL.md"
+
+    if not source.exists():
+        print(f"[aiseo] error: seed SOUL.md not found at {source}", file=sys.stderr)
+        return False
+
+    if target.exists():
+        try:
+            cur_lines = len(target.read_text(encoding="utf-8").splitlines())
+            new_lines = len(source.read_text(encoding="utf-8").splitlines())
+        except OSError as exc:
+            print(f"[aiseo] error: cannot read SOUL.md: {exc}", file=sys.stderr)
+            return False
+
+        delta = new_lines - cur_lines
+        sign = "+" if delta >= 0 else ""
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_path = target.parent / f"SOUL.md.bak.{timestamp}"
+
+        print(f"[aiseo] Current SOUL.md: {cur_lines} lines")
+        print(f"[aiseo] Seed SOUL.md:    {new_lines} lines ({sign}{delta})")
+        print("")
+        print(f"This will:")
+        print(f"  1. Back up to {backup_path.name}")
+        print(f"  2. Overwrite with seed version")
+        print("")
+
+        if interactive:
+            try:
+                response = input("Continue? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                response = ""
+            if response not in ("y", "yes"):
+                print("[aiseo] Aborted; no changes made.")
+                return False
+
+        try:
+            shutil.copy2(target, backup_path)
+        except OSError as exc:
+            print(f"[aiseo] error: backup to {backup_path.name} failed: {exc}", file=sys.stderr)
+            return False
+    else:
+        # First-time creation — no backup needed.
+        if interactive:
+            print(f"[aiseo] Will create SOUL.md at {target}")
+
+    try:
+        shutil.copy2(source, target)
+    except OSError as exc:
+        print(f"[aiseo] error: failed to write SOUL.md: {exc}", file=sys.stderr)
+        return False
+
+    print("[aiseo] SOUL.md refreshed from seed.")
+    return True
+
+
+def _parse_env_file(env_path: Path) -> dict[str, str]:
+    """Light-weight ``.env`` parser — KEY=VALUE per line, ``#`` comments, blank-line tolerant.
+
+    Mirrors the subset of bash semantics that ``hermes_cli/config.py::load_env``
+    handles for the AISEO profile. Strips surrounding single / double quotes
+    but does NOT perform shell expansion (no ``$VAR`` interpolation).
+    """
+    env: dict[str, str] = {}
+    if not env_path.exists():
+        return env
+    try:
+        body = env_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return env
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        env[key.strip()] = value.strip().strip('"\'')
+    return env
+
+
+def _check_plugin_env_requirements(profile_dir: Path, repo_root: Path) -> None:
+    """Warn (stderr) about env vars declared in enabled plugins' ``requires_env`` but missing.
+
+    Resolution order for each var:
+      1. profile's ``.env`` file
+      2. process environment (``os.environ``)
+    If neither has the var, it's reported. Plugins are read from the **profile's**
+    ``config.yaml::plugins.enabled``, not the seed, so user disables propagate.
+
+    Silent no-op when profile lacks a config or no plugins are enabled. Never
+    blocks sync — pure advisory output.
+    """
+    config_path = profile_dir / "config.yaml"
+    if not config_path.exists():
+        return
+
+    try:
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, UnicodeDecodeError, OSError):
+        return
+
+    enabled = (cfg.get("plugins") or {}).get("enabled") or []
+    if not enabled:
+        return
+
+    profile_env = _parse_env_file(profile_dir / ".env")
+
+    missing: dict[str, list[str]] = {}
+    for plugin_name in enabled:
+        plugin_yaml = repo_root / "plugins" / str(plugin_name) / "plugin.yaml"
+        if not plugin_yaml.exists():
+            continue
+        try:
+            meta = yaml.safe_load(plugin_yaml.read_text(encoding="utf-8")) or {}
+        except (yaml.YAMLError, UnicodeDecodeError, OSError):
+            continue
+        for var in meta.get("requires_env") or []:
+            var = str(var)
+            if var not in profile_env and var not in os.environ:
+                missing.setdefault(var, []).append(str(plugin_name))
+
+    if not missing:
+        return
+
+    print("", file=sys.stderr)
+    print("[aiseo] ⚠️  Missing env vars (required by enabled plugins):", file=sys.stderr)
+    for var in sorted(missing):
+        plugins_str = ", ".join(missing[var])
+        print(f"          {var:25s}  required by: {plugins_str}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(f"          Write to: {profile_dir / '.env'}", file=sys.stderr)
+    print(f"          See:      docs/aiseo-agent/DEPLOYMENT.md (Known plugins credential list)", file=sys.stderr)
+
+
+def _run_sync_command(sync_args: list[str]) -> None:
+    """Handle ``aiseo sync`` — idempotent sync, full diff to stdout, env warnings.
+
+    Flags:
+      ``--refresh-soul``  Back up + overwrite profile SOUL.md from seed.
+      ``-y`` / ``--yes``  Skip interactive confirmation for ``--refresh-soul``.
+    """
+    refresh_soul = False
+    skip_confirm = False
+    unknown: list[str] = []
+    for arg in sync_args:
+        if arg == "--refresh-soul":
+            refresh_soul = True
+        elif arg in ("-y", "--yes"):
+            skip_confirm = True
+        else:
+            unknown.append(arg)
+    if unknown:
+        print(
+            f"[aiseo] error: unknown sync flag(s): {' '.join(unknown)}\n"
+            "Usage: aiseo sync [--refresh-soul] [-y|--yes]",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    if refresh_soul:
+        seed_dir = _repo_root() / "seeds" / "aiseo-profile"
+        profile_dir = _profile_dir()
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        ok = _refresh_soul_from_seed(profile_dir, seed_dir, interactive=not skip_confirm)
+        if not ok:
+            raise SystemExit(1)
+        return
+
     diff = _sync_profile(force=False)
 
     added = diff["added"]
@@ -457,6 +860,8 @@ def _run_sync_command() -> None:
     if skipped:
         for item in skipped:
             print(f"    x {item}")
+
+    _check_plugin_env_requirements(_profile_dir(), _repo_root())
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +1147,7 @@ def main() -> None:
         return
 
     if args and args[0] == "sync":
-        _run_sync_command()
+        _run_sync_command(args[1:])
         return
 
     if len(args) >= 3 and args[0] == "cron" and args[1] == "create-from-memory":

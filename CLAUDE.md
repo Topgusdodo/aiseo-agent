@@ -42,7 +42,12 @@ preserves upstream Hermes branding. Contract tests:
 `tests/hermes_cli/test_banner.py::test_format_banner_version_label_*`.
 
 `aiseo_cli.py` also implements two extra subcommands the bash wrapper does not:
-- `aiseo sync` — re-run seed→profile sync (missing-only; never overwrites user state)
+- `aiseo sync [--refresh-soul] [-y|--yes]` — re-run seed→profile sync.
+  Default is missing-only + additive list migration (see "Profile bootstrap
+  pattern" below). `--refresh-soul` backs up + overwrites the profile SOUL.md
+  from seed; `-y` skips the interactive prompt. On every run, prints a warning
+  block listing env vars declared by enabled plugins' `requires_env` but
+  missing from both the profile `.env` and the process environment.
 - `aiseo cron create-from-memory <skill>` — pre-reads `MEMORY.md` and registers a
   cron job with a fully resolved prompt. Required because cron sessions run with
   `skip_memory=True` AND the aiseo profile disables the `file` toolset, so the
@@ -65,8 +70,26 @@ Sync is **missing-only and idempotent**:
 - `NEVER_OVERWRITE_FILES = ("MEMORY.md", "config.yaml", ".env", "auth.json", "auth.lock")`
   are protected regardless — they hold user state.
 
-If you add a new asset to `seeds/aiseo-profile/`, existing users only pick it up
-via `aiseo sync` (or a new install). Test the diff path before shipping.
+`config.yaml` has one **narrow exception** to "never overwrite": seed-derived
+**additive list migration**. `_migrate_profile_config` reads the seed config
+on every sync and diffs the items in `SEED_TRACKED_LIST_FIELDS` (currently
+`toolsets`, `agent.disabled_toolsets`, `plugins.enabled`) against the profile.
+Items present in seed but missing from profile are appended at the user's
+existing indent style, with an `# auto-added by aiseo sync <date>` audit
+comment. Never deletes, never replaces, never re-orders. Before any write,
+a rolling timestamped backup `config.yaml.bak.<YYYYMMDD_HHMMSS>` is taken
+(keep newest `MAX_CONFIG_BACKUPS` = 5; older pruned). Failure modes (corrupt
+seed YAML, missing block, inline scalar, YAML anchors) are reported under
+`diff["skipped"]` rather than crashing.
+
+**To extend additive migration**: add a dotted path to `SEED_TRACKED_LIST_FIELDS`
+in `aiseo_cli.py`. Only list-valued fields up to one level of nesting are
+supported. Scalars (model, max_turns) are intentionally NOT auto-migrated.
+
+For non-list seed drift (SOUL.md regression, new plugin `requires_env`),
+use `aiseo sync --refresh-soul` or follow the env warning block. Skills/
+internal file updates are NOT propagated; iterate skills directly in
+`~/.hermes/profiles/aiseo/skills/<name>/`.
 
 ## The aiseo-guard plugin
 

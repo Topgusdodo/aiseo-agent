@@ -24,28 +24,51 @@ git fetch
 git checkout <branch>          # 例：feat/aiseo-phase2 或 main
 git pull
 
-# 4. 同步 seed → 用户 profile（missing-only，幂等，绝不覆盖现有 skill / MEMORY.md / config.yaml / .env）
+# 4. 同步 seed → 用户 profile
+#    - 文件级 missing-only：MEMORY.md / .env / auth.json 等用户状态永不覆盖
+#    - 目录级 missing-only：已存在的 skill 目录不会被动到
+#    - 列表追加：toolsets / agent.disabled_toolsets / plugins.enabled
+#      三个字段按 seed 差量 append，自动追上新 toolset / 新插件启用
+#    - sync 完会自动打印 ⚠️ 警告块：列出启用插件 requires_env 但缺失的变量
 ./.venv/bin/aiseo sync
 
-# 5. 检查本次升级是否引入新插件、是否需要 env
-#    每个插件的 plugin.yaml 都声明 requires_env / 可选 env：
-ls plugins/
-cat plugins/<name>/plugin.yaml
+# 5. 如果升级带来了 SOUL.md 行为指令更新（不在自动追加范围内），显式刷新：
+./.venv/bin/aiseo sync --refresh-soul    # 备份当前 → 从 seed 复制（交互确认）
+./.venv/bin/aiseo sync --refresh-soul -y # 同上但跳过确认
 
-# 6. 配置必需 env（务必单引号，避免 $ / ! 被 shell 展开）
+# 6. 配置上一步警告里报缺的 env（务必单引号，避免 $ / ! 被 shell 展开）
 #    aiseo profile 的 env 文件路径是 ~/.hermes/profiles/aiseo/.env
 #    （不是 ~/.hermes/.env —— 那是 default profile 的，aiseo 不读）
 echo 'DATAFORSEO_BASE64=<paste-base64-here>' >> ~/.hermes/profiles/aiseo/.env
 
-# 7. 重启 gateway 让新 env / 新插件生效
+# 7. 重启 gateway 让新 env / 新插件 / 新追加的 toolset 生效
 ./.venv/bin/aiseo gateway restart
 
 # 8. 验证
 grep DATAFORSEO_BASE64 ~/.hermes/profiles/aiseo/.env       # env 已写入
+grep -A4 "^toolsets:" ~/.hermes/profiles/aiseo/config.yaml # 新 toolset 应有 # auto-added by ... 注释
 ./.venv/bin/aiseo                                          # 进 chat，让 LLM 列工具，确认新工具可见
 ```
 
-`aiseo sync` 永不覆盖的文件清单：`MEMORY.md`、`config.yaml`、`.env`、`auth.json`、`auth.lock`。新加的 seed 文件 / 新 skill 目录会按 missing-only 拷贝过去；已存在的 skill 目录不会被动到。
+`aiseo sync` 永不覆盖的文件清单：`MEMORY.md`、`config.yaml`（**仅例外**：列表
+追加，见下）、`.env`、`auth.json`、`auth.lock`。新加的 seed 文件 / 新 skill 目
+录会按 missing-only 拷贝过去；已存在的 skill 目录不会被动到。
+
+**列表追加例外**：从 v0.2 起，`aiseo sync` 会读 seed 的 `config.yaml`，对三个
+列表字段做差量 append：
+- `toolsets:`（顶层）
+- `agent.disabled_toolsets:`
+- `plugins.enabled:`
+
+只加 seed 有 profile 没的，**永不删、永不替换标量**（model / api_key / max_turns
+全保留）。每次写入前自动 rolling backup 到 `config.yaml.bak.<YYYYMMDD_HHMMSS>`
+（保留最近 5 份）。追加的项末尾带 `# auto-added by aiseo sync <date>` 注释，
+方便审计。
+
+如果你给 seed 加了**新字段类型**（不是上述三个），现有 profile 不会自动跟上——
+要么扩 `SEED_TRACKED_LIST_FIELDS` 白名单 + 跑 sync，要么手动改 profile 的
+config.yaml。SOUL.md 走 `--refresh-soul` 显式刷新；skills/ 内部文件目前没有
+传播机制（按目录粒度 missing-only，要更新需手动改用户 profile 的目录）。
 
 ## 已知插件凭证清单
 
