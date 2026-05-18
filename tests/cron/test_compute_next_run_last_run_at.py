@@ -32,7 +32,15 @@ class TestCronComputeNextRunUsesLastRunAt:
 
         schedule = {"kind": "cron", "expr": "0 */6 * * *"}  # every 6 hours
 
-        result = compute_next_run(schedule, last_run_at=last_run.isoformat())
+        # Pass timezone explicitly so croniter interprets the expression in
+        # the same zone as last_run_at. The cron-timezone fix decoupled
+        # base_time's tz from the cron-interpretation tz, so this test must
+        # state both — Africa here.
+        result = compute_next_run(
+            schedule,
+            last_run_at=last_run.isoformat(),
+            timezone="Africa/Casablanca",
+        )
         assert result is not None
         next_dt = datetime.fromisoformat(result)
 
@@ -55,7 +63,9 @@ class TestCronComputeNextRunUsesLastRunAt:
 
         schedule = {"kind": "cron", "expr": "0 */6 * * *"}
 
-        result = compute_next_run(schedule)
+        # Pass Africa tz explicitly so cron is interpreted in the same zone
+        # as the mocked _hermes_now() (which returns Africa-tz datetimes).
+        result = compute_next_run(schedule, timezone="Africa/Casablanca")
         assert result is not None
         next_dt = datetime.fromisoformat(result)
 

@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from hermes_constants import get_hermes_home
 from typing import Optional, Dict, List, Any, Union
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,12 @@ JOBS_FILE = CRON_DIR / "jobs.json"
 _jobs_file_lock = threading.Lock()
 OUTPUT_DIR = CRON_DIR / "output"
 ONESHOT_GRACE_SECONDS = 120
+
+# Default timezone used to interpret cron expressions when a job does not
+# carry its own ``timezone`` field. The aiseo fork defaults to Asia/Shanghai
+# (primary user locale); upstream Hermes users can override via the
+# HERMES_DEFAULT_CRON_TIMEZONE env var.
+DEFAULT_CRON_TIMEZONE: str = os.environ.get("HERMES_DEFAULT_CRON_TIMEZONE", "Asia/Shanghai")
 
 
 def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = None) -> List[str]:
@@ -128,7 +135,27 @@ def _normalize_job_record(job: Dict[str, Any]) -> Dict[str, Any]:
         state = "scheduled" if normalized.get("enabled", True) else "paused"
     normalized["state"] = state
 
+    tz = _coerce_job_text(normalized.get("timezone")).strip()
+    if not tz:
+        normalized["timezone"] = DEFAULT_CRON_TIMEZONE
+
     return normalized
+
+
+def _format_display_with_tz(display: str, timezone: str, kind: str) -> str:
+    """Append ``(timezone)`` to a schedule display string, but only for cron
+    schedules (once/interval do not need timezone context). Idempotent: if the
+    display already contains the same ``(tz)`` suffix it is returned unchanged.
+    """
+    if kind != "cron":
+        return display
+    display = (display or "").strip()
+    tz = (timezone or "").strip()
+    if not display or not tz:
+        return display
+    if f"({tz})" in display:
+        return display
+    return f"{display} ({tz})"
 
 
 def _secure_dir(path: Path):
@@ -348,11 +375,22 @@ def _compute_grace_seconds(schedule: dict) -> int:
     return MIN_GRACE
 
 
-def compute_next_run(schedule: Dict[str, Any], last_run_at: Optional[str] = None) -> Optional[str]:
+def compute_next_run(
+    schedule: Dict[str, Any],
+    last_run_at: Optional[str] = None,
+    *,
+    timezone: Optional[str] = None,
+) -> Optional[str]:
     """
     Compute the next run time for a schedule.
 
     Returns ISO timestamp string, or None if no more runs.
+
+    ``timezone`` (keyword-only) selects the IANA zone used to interpret cron
+    expressions. When unset, falls back to ``DEFAULT_CRON_TIMEZONE`` (env
+    overridable, defaults to Asia/Shanghai). Only applies to ``cron``-kind
+    schedules; once/interval schedules ignore timezone (their semantics are
+    absolute).
     """
     now = _hermes_now()
 
@@ -380,13 +418,30 @@ def compute_next_run(schedule: Dict[str, Any], last_run_at: Optional[str] = None
                 schedule.get("expr"),
             )
             return None
+
+        # Resolve the cron-interpretation timezone.  Invalid timezone strings
+        # fall back to the process default rather than crashing — cron jobs
+        # should keep running even if a hand-edited jobs.json carries garbage.
+        tz_name = (timezone or "").strip() or DEFAULT_CRON_TIMEZONE
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Invalid timezone %r for cron schedule; falling back to %s",
+                tz_name,
+                DEFAULT_CRON_TIMEZONE,
+            )
+            tz = ZoneInfo(DEFAULT_CRON_TIMEZONE)
+
         # Use last_run_at as the croniter base when available, consistent
         # with interval jobs.  This ensures that after a crash/restart,
         # the next run is anchored to the actual last execution time
         # rather than to an arbitrary restart time.
-        base_time = now
         if last_run_at:
-            base_time = _ensure_aware(datetime.fromisoformat(last_run_at))
+            base_time = _ensure_aware(datetime.fromisoformat(last_run_at)).astimezone(tz)
+        else:
+            base_time = now.astimezone(tz)
+
         cron = croniter(schedule["expr"], base_time)
         next_run = cron.get_next(datetime)
         return next_run.isoformat()
@@ -496,6 +551,7 @@ def create_job(
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
     no_agent: bool = False,
+    timezone: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a new cron job.
@@ -575,6 +631,14 @@ def create_job(
     normalized_workdir = _normalize_workdir(workdir)
     normalized_no_agent = bool(no_agent)
 
+    # Timezone: validate and fall back to default. Invalid IANA names raise
+    # at create time so the bad config never lands in jobs.json.
+    normalized_timezone = (timezone or "").strip() or DEFAULT_CRON_TIMEZONE
+    try:
+        ZoneInfo(normalized_timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"Invalid timezone {timezone!r}: {exc}")
+
     # no_agent jobs are meaningless without a script — the script IS the job.
     # Surface this as a clear ValueError at create time so bad configs never
     # reach the scheduler.
@@ -607,7 +671,12 @@ def create_job(
         "no_agent": normalized_no_agent,
         "context_from": context_from,
         "schedule": parsed_schedule,
-        "schedule_display": parsed_schedule.get("display", schedule),
+        "schedule_display": _format_display_with_tz(
+            parsed_schedule.get("display", schedule),
+            normalized_timezone,
+            parsed_schedule.get("kind", ""),
+        ),
+        "timezone": normalized_timezone,
         "repeat": {
             "times": repeat,  # None = forever
             "completed": 0
@@ -617,7 +686,7 @@ def create_job(
         "paused_at": None,
         "paused_reason": None,
         "created_at": now,
-        "next_run_at": compute_next_run(parsed_schedule),
+        "next_run_at": compute_next_run(parsed_schedule, timezone=normalized_timezone),
         "last_run_at": None,
         "last_status": None,
         "last_error": None,
@@ -669,13 +738,29 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
             else:
                 updates["workdir"] = _normalize_workdir(_wd)
 
+        # Validate / normalize timezone if present.  Empty string falls back
+        # to existing value; invalid IANA names raise so bad config never lands.
+        if "timezone" in updates:
+            _tz_raw = (updates["timezone"] or "").strip() if isinstance(updates["timezone"], str) else None
+            if not _tz_raw:
+                updates.pop("timezone")
+            else:
+                try:
+                    ZoneInfo(_tz_raw)
+                except ZoneInfoNotFoundError as exc:
+                    raise ValueError(f"Invalid timezone {updates['timezone']!r}: {exc}")
+                updates["timezone"] = _tz_raw
+
         updated = _apply_skill_fields({**job, **updates})
         schedule_changed = "schedule" in updates
+        timezone_changed = "timezone" in updates
 
         if "skills" in updates or "skill" in updates:
             normalized_skills = _normalize_skill_list(updated.get("skill"), updated.get("skills"))
             updated["skills"] = normalized_skills
             updated["skill"] = normalized_skills[0] if normalized_skills else None
+
+        current_timezone = updated.get("timezone") or DEFAULT_CRON_TIMEZONE
 
         if schedule_changed:
             updated_schedule = updated["schedule"]
@@ -685,15 +770,39 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
             if isinstance(updated_schedule, str):
                 updated_schedule = parse_schedule(updated_schedule)
                 updated["schedule"] = updated_schedule
-            updated["schedule_display"] = updates.get(
+            raw_display = updates.get(
                 "schedule_display",
                 updated_schedule.get("display", updated.get("schedule_display")),
             )
+            updated["schedule_display"] = _format_display_with_tz(
+                raw_display,
+                current_timezone,
+                updated_schedule.get("kind", ""),
+            )
             if updated.get("state") != "paused":
-                updated["next_run_at"] = compute_next_run(updated_schedule)
+                updated["next_run_at"] = compute_next_run(
+                    updated_schedule, timezone=current_timezone
+                )
+        elif timezone_changed:
+            # Timezone changed but schedule did not — refresh schedule_display
+            # suffix and recompute next_run_at under the new tz so the user
+            # actually sees the new interpretation take effect.
+            current_schedule = updated["schedule"]
+            raw_display = current_schedule.get("display", updated.get("schedule_display"))
+            updated["schedule_display"] = _format_display_with_tz(
+                raw_display,
+                current_timezone,
+                current_schedule.get("kind", ""),
+            )
+            if updated.get("state") != "paused":
+                updated["next_run_at"] = compute_next_run(
+                    current_schedule, timezone=current_timezone
+                )
 
         if updated.get("enabled", True) and updated.get("state") != "paused" and not updated.get("next_run_at"):
-            updated["next_run_at"] = compute_next_run(updated["schedule"])
+            updated["next_run_at"] = compute_next_run(
+                updated["schedule"], timezone=current_timezone
+            )
 
         jobs[i] = updated
         save_jobs(jobs)
@@ -720,7 +829,7 @@ def resume_job(job_id: str) -> Optional[Dict[str, Any]]:
     if not job:
         return None
 
-    next_run_at = compute_next_run(job["schedule"])
+    next_run_at = compute_next_run(job["schedule"], timezone=job.get("timezone"))
     return update_job(
         job_id,
         {
@@ -801,7 +910,9 @@ def mark_job_run(job_id: str, success: bool, error: Optional[str] = None,
                         return
                 
                 # Compute next run
-                job["next_run_at"] = compute_next_run(job["schedule"], now)
+                job["next_run_at"] = compute_next_run(
+                    job["schedule"], now, timezone=job.get("timezone")
+                )
 
                 # If no next run, decide whether this is terminal completion
                 # (one-shot) or a transient failure (recurring schedule couldn't
@@ -858,7 +969,9 @@ def advance_next_run(job_id: str) -> bool:
                 if kind not in {"cron", "interval"}:
                     return False
                 now = _hermes_now().isoformat()
-                new_next = compute_next_run(job["schedule"], now)
+                new_next = compute_next_run(
+                    job["schedule"], now, timezone=job.get("timezone")
+                )
                 if new_next and new_next != job.get("next_run_at"):
                     job["next_run_at"] = new_next
                     save_jobs(jobs)
@@ -910,7 +1023,9 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
             # silently skipped forever; recompute next_run_at from the
             # schedule so they pick up at their next scheduled tick.
             if not recovered_next and kind in {"cron", "interval"}:
-                recovered_next = compute_next_run(schedule, now.isoformat())
+                recovered_next = compute_next_run(
+                    schedule, now.isoformat(), timezone=job.get("timezone")
+                )
                 if recovered_next:
                     recovery_kind = kind
 
@@ -943,7 +1058,9 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
             if kind in {"cron", "interval"} and (now - next_run_dt).total_seconds() > grace:
                 # Job is past its catch-up grace window — this is a stale missed run.
                 # Grace scales with schedule period: daily=2h, hourly=30m, 10min=5m.
-                new_next = compute_next_run(schedule, now.isoformat())
+                new_next = compute_next_run(
+                    schedule, now.isoformat(), timezone=job.get("timezone")
+                )
                 if new_next:
                     logger.info(
                         "Job '%s' missed its scheduled time (%s, grace=%ds). "

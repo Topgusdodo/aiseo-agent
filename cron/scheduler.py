@@ -14,6 +14,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -653,6 +654,170 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
     if delivery_errors:
         return "; ".join(delivery_errors)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Start-event notice delivery
+# ---------------------------------------------------------------------------
+#
+# Cron jobs emit a "starting now" notice BEFORE run_job() so users get an
+# immediate signal that their scheduled task is firing — rather than waiting
+# the full agent runtime (potentially minutes) before any delivery arrives.
+# The notice is best-effort:
+#   - never wrapped with the "Cronjob Response" header (would mislead UX),
+#   - silently skipped for deliver=local (matches _deliver_result semantics),
+#   - failures never bubble out — start notice failing must not block
+#     the actual job from running.
+
+_CONTROL_CHARS_RE = re.compile(r"[\r\n\t\x00-\x1f<>]")
+
+
+def _sanitize_for_notice(text: str, *, max_len: int = 80) -> str:
+    """Strip control characters and markdown/HTML angle brackets from user-
+    controlled fields before splicing them into a notice. The aiseo plugin
+    already filters at create time; upstream Hermes cronjob tools do not —
+    defense in depth at the notice boundary."""
+    cleaned = _CONTROL_CHARS_RE.sub(" ", str(text or "")).strip()
+    return cleaned[:max_len]
+
+
+def _build_start_notice(job: dict) -> str:
+    """Deterministic plain-text notice. Does NOT invoke any LLM — pure
+    string concatenation with control-character filtering."""
+    name = _sanitize_for_notice(job.get("name") or job.get("id", "?"))
+    schedule_display = _sanitize_for_notice(
+        job.get("schedule_display") or "—",
+        max_len=120,
+    )
+    return (
+        f"⏳ 开始执行定时任务：{name}\n"
+        f"计划：{schedule_display}\n"
+        f"完成后会自动发送结果。"
+    )
+
+
+def _deliver_notice(
+    job: dict,
+    content: str,
+    adapters=None,
+    loop=None,
+) -> Optional[str]:
+    """
+    Deliver an unwrapped notice (e.g. "task started") to a job's delivery
+    targets. Unlike _deliver_result, this:
+
+      - does NOT wrap content with the "Cronjob Response" header,
+      - silently skips when deliver=local (no targets),
+      - swallows all errors (logs warning, returns the error string) — the
+        caller is expected to ignore the return value because notices are
+        best-effort UX, not part of the job result.
+
+    Returns None on success, or an error string for diagnostics only.
+    """
+    if not content:
+        return None
+
+    try:
+        targets = _resolve_delivery_targets(job)
+    except Exception as exc:
+        logger.warning("Job '%s': notice target resolution failed: %s", job.get("id", "?"), exc)
+        return str(exc)
+
+    if not targets:
+        return None  # local-only — silent skip, consistent with _deliver_result
+
+    try:
+        from tools.send_message_tool import _send_to_platform
+        from gateway.config import load_gateway_config, Platform
+        config = load_gateway_config()
+    except Exception as exc:
+        logger.warning("Job '%s': notice gateway-config load failed: %s", job.get("id", "?"), exc)
+        return str(exc)
+
+    errors: list[str] = []
+    for target in targets:
+        platform_name = target["platform"]
+        chat_id = target["chat_id"]
+        thread_id = target.get("thread_id")
+
+        try:
+            platform = Platform(platform_name.lower())
+        except (ValueError, KeyError):
+            errors.append(f"unknown platform '{platform_name}'")
+            continue
+
+        pconfig = config.platforms.get(platform)
+        if not pconfig or not pconfig.enabled:
+            errors.append(f"platform '{platform_name}' not configured/enabled")
+            continue
+
+        runtime_adapter = (adapters or {}).get(platform)
+        delivered = False
+        if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():
+            try:
+                send_metadata = {"thread_id": thread_id} if thread_id else None
+                future = asyncio.run_coroutine_threadsafe(
+                    runtime_adapter.send(chat_id, content, metadata=send_metadata),
+                    loop,
+                )
+                send_result = future.result(timeout=15)
+                # Check the adapter's structured result the same way
+                # _deliver_result does — adapter may return success=False
+                # without raising. Fall through to standalone in that case.
+                if send_result is None or getattr(send_result, "success", True):
+                    logger.info(
+                        "Job '%s': start notice delivered to %s:%s via live adapter",
+                        job.get("id", "?"), platform_name, chat_id,
+                    )
+                    delivered = True
+                else:
+                    err = getattr(send_result, "error", "unknown")
+                    logger.warning(
+                        "Job '%s': live adapter notice send to %s:%s failed (%s), "
+                        "trying standalone",
+                        job.get("id", "?"), platform_name, chat_id, err,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Job '%s': live adapter notice send failed (%s), trying standalone",
+                    job.get("id", "?"), exc,
+                )
+
+        if delivered:
+            continue
+
+        try:
+            coro = _send_to_platform(platform, pconfig, chat_id, content, thread_id=thread_id)
+            try:
+                result = asyncio.run(coro)
+            except RuntimeError:
+                coro.close()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(
+                        asyncio.run,
+                        _send_to_platform(platform, pconfig, chat_id, content, thread_id=thread_id),
+                    )
+                    result = fut.result(timeout=15)
+            # _send_to_platform returns a dict; an "error" key means the send
+            # failed even though no exception was raised. Surface it the same
+            # way _deliver_result does.
+            if isinstance(result, dict) and result.get("error"):
+                msg = f"notice delivery to {platform_name}:{chat_id} failed: {result['error']}"
+                logger.warning("Job '%s': %s", job.get("id", "?"), msg)
+                errors.append(msg)
+                continue
+            logger.info(
+                "Job '%s': start notice delivered to %s:%s",
+                job.get("id", "?"), platform_name, chat_id,
+            )
+        except Exception as exc:
+            msg = f"notice delivery to {platform_name}:{chat_id} failed: {exc}"
+            logger.warning("Job '%s': %s", job.get("id", "?"), msg)
+            errors.append(msg)
+
+    if errors:
+        return "; ".join(errors)
     return None
 
 
@@ -1738,8 +1903,22 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
             )
 
         def _process_job(job: dict) -> bool:
-            """Run one due job end-to-end: execute, save, deliver, mark."""
+            """Run one due job end-to-end: notify start, execute, save, deliver, mark."""
             try:
+                # Best-effort start notice — delivered BEFORE run_job() so the
+                # user gets an immediate "task firing now" signal rather than
+                # waiting the full agent runtime. Failures here MUST NOT block
+                # the actual job; we log and continue.
+                try:
+                    notice = _build_start_notice(job)
+                    if notice:
+                        _deliver_notice(job, notice, adapters=adapters, loop=loop)
+                except Exception as start_exc:
+                    logger.warning(
+                        "Job '%s': start notice failed: %s",
+                        job.get("id", "?"), start_exc,
+                    )
+
                 success, output, final_response, error = run_job(job)
 
                 output_file = save_job_output(job["id"], output)
