@@ -1,0 +1,15 @@
+name: dataforseo
+version: 0.1.0
+description: "DataForSEO API integration — 5 structured SEO data tools (SERP, on-page audit, keyword volume, keyword ideas, backlinks summary). Tools are gated on DATAFORSEO_BASE64 (precomputed `base64(login:password)` from app.dataforseo.com/api-access — NOT the dashboard login). Set DATAFORSEO_SANDBOX=1 for the free dummy-data sandbox host."
+author: aiseo-agent
+# Omitting `kind` defaults to standalone (hermes_cli/plugins.py:979-988).
+# Opt-in via seeds/aiseo-profile/config.yaml: plugins.enabled — paid API,
+# never auto-load like Spotify (kind: backend) or image_gen backends.
+provides_tools:
+  - dataforseo_serp_google
+  - dataforseo_onpage_summary
+  - dataforseo_keyword_volume
+  - dataforseo_labs_keyword_ideas
+  - dataforseo_backlinks_summary
+requires_env:
+  - DATAFORSEO_BASE64

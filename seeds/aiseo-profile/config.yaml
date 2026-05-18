@@ -57,3 +57,7 @@ plugins:
                                         # (skip names: memory, context_engine,
                                         # platforms, model-providers); aiseo-guard
                                         # is not in the skip set, so it auto-loads.
+    - dataforseo                        # Structured SEO data source (paid API).
+                                        # Tools grey out when DATAFORSEO_BASE64
+                                        # env var is unset; see .env.example for
+                                        # how to generate the base64 token.

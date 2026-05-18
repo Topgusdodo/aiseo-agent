@@ -668,7 +668,27 @@ def grade_s6(
             return False, "seo-weekly-report baseline evidence missing"
         return True, ""
 
+    if sid in ("S6-05", "S6-06", "S6-07"):
+        return _grade_s6_dataforseo(sid, tools)
+
     return False, f"unknown S6 prompt {sid}"
+
+
+def _grade_s6_dataforseo(sid: str, tools: tuple[str, ...]) -> tuple[bool, str]:
+    """S6-05/06/07 — DataForSEO plugin dispatch evidence.
+
+    The pre-S6-branch checks in :func:`grade_s6` (banned tools, leaks,
+    INTERNAL_TOOL_OUTPUT_PATTERNS, section count) already cover the out-text
+    direction. Here we only need to confirm at least one ``dataforseo_*`` tool
+    actually fired (log direction).
+    """
+    if not any(t.startswith("dataforseo_") for t in tools):
+        return False, f"{sid}: no dataforseo_* tool dispatched"
+    if sid == "S6-06" and not any(t.startswith("dataforseo_keyword_") or t.startswith("dataforseo_labs_") for t in tools):
+        return False, "S6-06: keyword_volume / labs_keyword_ideas tool not dispatched"
+    if sid == "S6-07" and not any(t.startswith("dataforseo_onpage_") for t in tools):
+        return False, "S6-07: dataforseo_onpage_* tool not dispatched"
+    return True, ""
 
 
 def grade_prompt(sid: str, out_path: Path, log_path: Path, meta_path: Path) -> PromptResult:

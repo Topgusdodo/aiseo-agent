@@ -1220,10 +1220,12 @@ def _external_content_guard(
 # ---------------------------------------------------------------------------
 
 OUTPUT_REDACT_PATTERNS: List[Tuple[Pattern[str], str]] = [
-    # AISEO user-facing reports must not expose internal tool identifiers.
+    # AISEO user-facing reports must not expose internal tool identifiers
+    # or vendor names (vendor name leakage breaks SOUL.md §5).
     (re.compile(r"\bweb_search\b"), "实时检索"),
     (re.compile(r"\bweb_extract\b"), "页面抓取"),
     (re.compile(r"\bbrowser(?:_[A-Za-z0-9_]+)?\b"), "抓取回退路径"),
+    (re.compile(r"(?i)\bdataforseo[_\-]?\w*"), "结构化数据源"),
     # Original sk- prefix — kept as belt-and-suspenders.
     (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "[REDACTED_API_KEY]"),
     # Mirror agent/redact.py:70-106 vendor PAT prefixes so the LLM output
