@@ -27,6 +27,7 @@ Implements the four guard hooks defined in D6 of the AISEO master plan:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -514,6 +515,9 @@ _ALLOWED_SCHEDULE_TIMEZONES = {
 }
 
 _ALLOWED_REPORT_LANGUAGES = {"zh-CN", "en"}
+# SECURITY BOUNDARY: must not accept colon — IPv6 brackets are stripped by
+# urlparse, and broadening this regex would allow bracket-format private IPv6
+# (like ::1) to bypass guard chain.
 _SAFE_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+$")
 
 
@@ -551,24 +555,91 @@ def _tool_error(message: str) -> str:
     return json.dumps({"success": False, "error": message}, ensure_ascii=False)
 
 
-def _is_private_ipv4(host: str) -> bool:
-    parts = host.split(".")
-    if len(parts) != 4:
-        return False
+def _is_private_host(host: str) -> bool:
+    """Return True if *host* resolves to a private/loopback/reserved address.
+
+    Uses stdlib ``ipaddress`` so numeric representations that ``int()`` handles
+    correctly (e.g. standard decimal dotted quads) are classified correctly.
+    Non-IP hostnames (domain labels) raise ``ValueError`` inside
+    ``ipaddress.ip_address`` and we return ``False`` — the caller's hostname
+    suffix / no-dot checks are responsible for those.
+
+    IMPORTANT: the except branch must return False, NOT True.  Returning True
+    on ValueError would block every domain name passed through this helper.
+    """
     try:
-        nums = [int(part) for part in parts]
+        addr = ipaddress.ip_address(host)
+        return (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_unspecified
+            or addr.is_reserved
+        )
     except ValueError:
         return False
-    if any(num < 0 or num > 255 for num in nums):
+
+
+# Shared rejection message for private/internal host checks in _normalize_public_url.
+_PRIVATE_REJECT_MSG = (
+    "{field} must target a public website, not localhost/private/internal hosts."
+)
+
+# RFC-private / vendor-reserved hostname suffixes that must never reach the
+# public internet.  Checked via str.endswith() — order does not matter.
+_PRIVATE_HOSTNAME_SUFFIXES: tuple[str, ...] = (
+    ".corp",
+    ".lan",
+    ".intranet",
+    ".home",
+    ".local",
+    ".internal",
+    ".localhost",
+)
+
+
+def _is_numeric_ip_obfuscated(host: str) -> bool:
+    """Return True if *host* looks like an obfuscated numeric IPv4 address.
+
+    Catches two SSRF patterns that standard decimal dotted-quad parsing misses:
+
+    - Octal notation: a dotted-quad where at least one segment has a leading
+      zero (e.g. ``001.002.003.004`` or ``0177.0.0.1``).
+    - Hex notation: a dotted-quad where at least one segment starts with ``0x``
+      (e.g. ``0x7f.0.0.1``), OR a single-segment hex integer (``0x7f000001``).
+
+    Crucially, a match requires the host to look like an IPv4 first:
+    - Single token: only ``0x``-prefixed integers qualify (single-int IP form).
+    - Multiple tokens: must be exactly 4 segments where every segment is
+      either all-digits or ``0x``-prefixed.
+
+    This prevents false positives on legitimate SaaS subdomains such as
+    ``01.example.com`` (5 tokens, not a dotted-quad) or
+    ``s3-0.amazonaws.com`` (token ``s3-0`` is not all-digits).
+    """
+    tokens = host.split(".")
+
+    # Single-segment: only hex integer form qualifies (e.g. 0x7f000001).
+    if len(tokens) == 1:
+        return tokens[0].lower().startswith("0x")
+
+    # Must be exactly 4 segments (dotted-quad) to be a candidate IPv4.
+    if len(tokens) != 4:
         return False
-    return (
-        nums[0] == 10
-        or nums[0] == 127
-        or (nums[0] == 172 and 16 <= nums[1] <= 31)
-        or (nums[0] == 192 and nums[1] == 168)
-        or (nums[0] == 169 and nums[1] == 254)
-        or nums[0] == 0
-    )
+
+    # Every segment must be purely numeric or 0x-prefixed; mixed labels
+    # (e.g. "s3-0") disqualify the host immediately.
+    for tok in tokens:
+        if not (tok.isdigit() or tok.lower().startswith("0x")):
+            return False
+
+    # All four segments are numeric-like; check for at least one obfuscation.
+    for tok in tokens:
+        if tok.lower().startswith("0x"):
+            return True  # hex segment
+        if len(tok) > 1 and tok.startswith("0"):
+            return True  # leading-zero octal-style segment
+    return False
 
 
 def _normalize_public_url(value: Any, *, field: str = "site_url") -> str:
@@ -581,15 +652,36 @@ def _normalize_public_url(value: Any, *, field: str = "site_url") -> str:
     if parsed.username or parsed.password:
         raise ValueError(f"{field} must not contain credentials.")
     host = (parsed.hostname or "").strip().lower().rstrip(".")
-    if (
-        not host
-        or host == "localhost"
-        or host.endswith(".local")
-        or host.endswith(".internal")
-        or _is_private_ipv4(host)
-        or not _SAFE_HOST_RE.match(host)
+    _reject_msg = _PRIVATE_REJECT_MSG.format(field=field)
+
+    # (a) Well-known private hostname suffixes (includes .local / .internal
+    #     already present, plus new .corp / .lan / .intranet / .home /
+    #     .localhost additions).
+    if not host or host == "localhost" or any(
+        host.endswith(s) for s in _PRIVATE_HOSTNAME_SUFFIXES
     ):
-        raise ValueError(f"{field} must target a public website, not localhost/private/internal hosts.")
+        raise ValueError(_reject_msg)
+
+    # (b) Bare labels with no dot: db01, app-server, etc.  All legitimate
+    #     public hostnames have at least one dot.
+    if "." not in host:
+        raise ValueError(_reject_msg)
+
+    # (c) Numeric IP obfuscation: octal labels (0177.x.x.x) or single-segment
+    #     hex (0x7f000001).  Must run before _SAFE_HOST_RE because hex tokens
+    #     pass the character set check.
+    if _is_numeric_ip_obfuscated(host):
+        raise ValueError(_reject_msg)
+
+    # (d) Private/loopback/reserved IP addresses (stdlib ipaddress — handles
+    #     standard decimal dotted quads and single-integer forms).
+    if _is_private_host(host):
+        raise ValueError(_reject_msg)
+
+    # (e) Character-set guard — rejects IPv6 brackets, port colons, etc.
+    if not _SAFE_HOST_RE.match(host):
+        raise ValueError(_reject_msg)
+
     path = parsed.path or ""
     if any(char in raw for char in "\r\n<>") or parsed.fragment:
         raise ValueError(f"{field} contains unsupported control/markup characters.")
