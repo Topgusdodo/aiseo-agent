@@ -9,10 +9,9 @@ def _payload(raw: str) -> dict:
     return json.loads(raw)
 
 
-def test_schedule_task_creates_origin_delivered_technical_audit(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
+def test_schedule_task_creates_origin_delivered_technical_audit(
+    aiseo_guard, isolate_cron, monkeypatch
+):
     monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
     monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
     monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "123")
@@ -49,11 +48,7 @@ def test_schedule_task_creates_origin_delivered_technical_audit(aiseo_guard, tmp
     assert job["enabled_toolsets"] == ["web", "search", "browser"]
 
 
-def test_schedule_task_monthly_uses_monthly_cron(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_schedule_task_monthly_uses_monthly_cron(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -71,11 +66,7 @@ def test_schedule_task_monthly_uses_monthly_cron(aiseo_guard, tmp_path, monkeypa
     assert result["job"]["skills"] == ["seo-weekly-report"]
 
 
-def test_schedule_task_unwraps_model_argument_wrappers(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_schedule_task_unwraps_model_argument_wrappers(aiseo_guard, isolate_cron):
     value_wrapped = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -112,20 +103,20 @@ def test_schedule_task_unwraps_model_argument_wrappers(aiseo_guard, tmp_path, mo
     assert params_wrapped["job"]["time"] == "23:30"
 
 
-def test_schedule_task_supports_all_seo_task_types(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_schedule_task_supports_all_seo_task_types(aiseo_guard, isolate_cron):
     cases = [
         ("site_health_check", {"site_url": "https://example.com"}, ["technical-seo-audit"]),
         ("technical_audit", {"site_url": "https://example.com"}, ["technical-seo-audit"]),
         ("page_audit", {"page_url": "https://example.com/blog/post"}, ["growflare-seo"]),
         ("keyword_opportunity", {"target_keyword": "seo automation"}, ["keyword-opportunity"]),
-        ("competitor_monitoring", {
-            "site_url": "https://example.com",
-            "competitors": ["https://example.org", "https://example.net"],
-        }, ["competitor-analysis"]),
+        (
+            "competitor_monitoring",
+            {
+                "site_url": "https://example.com",
+                "competitors": ["https://example.org", "https://example.net"],
+            },
+            ["competitor-analysis"],
+        ),
         ("content_brief", {"target_keyword": "ai seo tools"}, ["content-brief"]),
         ("seo_delta_report", {"site_url": "https://example.com"}, ["seo-weekly-report"]),
     ]
@@ -220,11 +211,7 @@ def test_schedule_task_rejects_forbidden_generic_cron_fields(aiseo_guard):
     assert "Unsupported field" in result["error"]
 
 
-def test_schedule_report_alias_still_creates_delta_report(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_schedule_report_alias_still_creates_delta_report(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_report({"site_url": "https://example.com"})
     )
@@ -234,11 +221,7 @@ def test_schedule_report_alias_still_creates_delta_report(aiseo_guard, tmp_path,
     assert result["job"]["skills"] == ["seo-weekly-report"]
 
 
-def test_aiseo_schedule_task_hourly_cron_expr(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_aiseo_schedule_task_hourly_cron_expr(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -259,11 +242,7 @@ def test_aiseo_schedule_task_hourly_cron_expr(aiseo_guard, tmp_path, monkeypatch
     assert job["time"] == "09:30"
 
 
-def test_aiseo_schedule_task_every_6h_cron_expr(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_aiseo_schedule_task_every_6h_cron_expr(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -283,11 +262,7 @@ def test_aiseo_schedule_task_every_6h_cron_expr(aiseo_guard, tmp_path, monkeypat
     assert job["time"] == "09:15"
 
 
-def test_aiseo_schedule_task_every_12h_cron_expr(aiseo_guard, tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
+def test_aiseo_schedule_task_every_12h_cron_expr(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -339,14 +314,10 @@ def test_aiseo_schedule_task_rejects_arbitrary_cron_expression(aiseo_guard):
 
 
 def test_aiseo_schedule_task_subdaily_cadence_prompt_carries_full_time(
-    aiseo_guard, tmp_path, monkeypatch
+    aiseo_guard, isolate_cron
 ):
     """Schedule label in the prompt keeps the HH:MM the customer specified
     even when the hourly cron expression only uses MM."""
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
     from cron.jobs import get_job
 
     result = _payload(
@@ -378,12 +349,8 @@ def test_aiseo_schedule_task_subdaily_cadence_prompt_carries_full_time(
     ],
 )
 def test_aiseo_schedule_task_all_frequencies_produce_canonical_cron(
-    aiseo_guard, tmp_path, monkeypatch, frequency, expected_expr
+    aiseo_guard, isolate_cron, frequency, expected_expr
 ):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {

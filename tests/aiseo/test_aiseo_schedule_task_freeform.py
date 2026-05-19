@@ -15,15 +15,7 @@ def _payload(raw: str) -> dict:
     return json.loads(raw)
 
 
-def _isolate_cron(tmp_path, monkeypatch):
-    monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-    monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
-
-def test_freeform_prompt_creates_job(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_prompt_creates_job(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -41,9 +33,7 @@ def test_freeform_prompt_creates_job(aiseo_guard, tmp_path, monkeypatch):
     assert "(Asia/Shanghai)" in job["schedule"]
 
 
-def test_freeform_prompt_includes_hardening_directives(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_prompt_includes_hardening_directives(aiseo_guard, isolate_cron):
     from cron.jobs import list_jobs
 
     aiseo_guard._aiseo_schedule_task(
@@ -63,12 +53,10 @@ def test_freeform_prompt_includes_hardening_directives(aiseo_guard, tmp_path, mo
     assert "sitemap" in cron_prompt
 
 
-def test_freeform_enabled_toolsets_locked(aiseo_guard, tmp_path, monkeypatch):
+def test_freeform_enabled_toolsets_locked(aiseo_guard, isolate_cron):
     """Free-form jobs must expose aiseo_skills_read so the cron agent can
     honor the wrapper's "load matching SKILL.md at runtime" directive,
     plus the standard public-web read tools. Nothing else."""
-    _isolate_cron(tmp_path, monkeypatch)
-
     from cron.jobs import list_jobs
 
     aiseo_guard._aiseo_schedule_task(
@@ -89,9 +77,7 @@ def test_freeform_enabled_toolsets_locked(aiseo_guard, tmp_path, monkeypatch):
     assert "cronjob" not in enabled
 
 
-def test_missing_prompt_and_task_type_errors(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_missing_prompt_and_task_type_errors(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -106,9 +92,7 @@ def test_missing_prompt_and_task_type_errors(aiseo_guard, tmp_path, monkeypatch)
     assert "prompt" in err or "task_type" in err
 
 
-def test_freeform_prompt_scanned_for_injection(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_prompt_scanned_for_injection(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -138,9 +122,7 @@ def test_freeform_prompt_scanned_for_injection(aiseo_guard, tmp_path, monkeypatc
         ("deliver", "telegram"),
     ],
 )
-def test_freeform_forbidden_fields_still_blocked(aiseo_guard, tmp_path, monkeypatch, field, value):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_forbidden_fields_still_blocked(aiseo_guard, isolate_cron, field, value):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -157,10 +139,8 @@ def test_freeform_forbidden_fields_still_blocked(aiseo_guard, tmp_path, monkeypa
     assert field.lower() in err or "unsupported" in err
 
 
-def test_legacy_task_type_path_still_works(aiseo_guard, tmp_path, monkeypatch):
+def test_legacy_task_type_path_still_works(aiseo_guard, isolate_cron):
     """Backward compatibility: existing task_type-based callers keep working."""
-    _isolate_cron(tmp_path, monkeypatch)
-
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -187,9 +167,7 @@ def test_legacy_task_type_path_still_works(aiseo_guard, tmp_path, monkeypatch):
         ("\x1f", "US"),
     ],
 )
-def test_freeform_prompt_rejects_control_chars(aiseo_guard, tmp_path, monkeypatch, bad_char, label):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_prompt_rejects_control_chars(aiseo_guard, isolate_cron, bad_char, label):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -204,10 +182,8 @@ def test_freeform_prompt_rejects_control_chars(aiseo_guard, tmp_path, monkeypatc
     assert "control" in result.get("error", "").lower()
 
 
-def test_freeform_prompt_allows_newline(aiseo_guard, tmp_path, monkeypatch):
+def test_freeform_prompt_allows_newline(aiseo_guard, isolate_cron):
     """Multiline free-form prompts must be allowed — \\n is legitimate."""
-    _isolate_cron(tmp_path, monkeypatch)
-
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -221,9 +197,7 @@ def test_freeform_prompt_allows_newline(aiseo_guard, tmp_path, monkeypatch):
     assert result["success"] is True
 
 
-def test_freeform_prompt_too_long_rejected(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_prompt_too_long_rejected(aiseo_guard, isolate_cron):
     result = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -238,11 +212,10 @@ def test_freeform_prompt_too_long_rejected(aiseo_guard, tmp_path, monkeypatch):
     assert "prompt" in result.get("error", "").lower()
 
 
-def test_freeform_job_recognized_as_aiseo_created(aiseo_guard, tmp_path, monkeypatch):
+def test_freeform_job_recognized_as_aiseo_created(aiseo_guard, isolate_cron):
     """Critical double-sided contract: _is_aiseo_created_job must return True
     for free-form jobs, otherwise aiseo_manage_scheduled_tasks silently rejects
     view / pause / delete / reschedule on every free-form job."""
-    _isolate_cron(tmp_path, monkeypatch)
     from cron.jobs import list_jobs
 
     aiseo_guard._aiseo_schedule_task(
@@ -256,9 +229,7 @@ def test_freeform_job_recognized_as_aiseo_created(aiseo_guard, tmp_path, monkeyp
     assert aiseo_guard._is_aiseo_created_job(jobs[0]) is True
 
 
-def test_freeform_job_visible_to_manage_list(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_job_visible_to_manage_list(aiseo_guard, isolate_cron):
     aiseo_guard._aiseo_schedule_task(
         {
             "prompt": "每天抓 cfmate.com 首页标题",
@@ -274,9 +245,7 @@ def test_freeform_job_visible_to_manage_list(aiseo_guard, tmp_path, monkeypatch)
     assert listed["tasks"][0]["task_type"] == "freeform"
 
 
-def test_freeform_job_can_be_paused_and_resumed_via_manage(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_job_can_be_paused_and_resumed_via_manage(aiseo_guard, isolate_cron):
     create = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -301,9 +270,7 @@ def test_freeform_job_can_be_paused_and_resumed_via_manage(aiseo_guard, tmp_path
     assert resumed["success"] is True
 
 
-def test_freeform_job_can_be_deleted_via_manage(aiseo_guard, tmp_path, monkeypatch):
-    _isolate_cron(tmp_path, monkeypatch)
-
+def test_freeform_job_can_be_deleted_via_manage(aiseo_guard, isolate_cron):
     create = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -322,11 +289,9 @@ def test_freeform_job_can_be_deleted_via_manage(aiseo_guard, tmp_path, monkeypat
     assert deleted["success"] is True
 
 
-def test_freeform_job_can_be_rescheduled_via_manage(aiseo_guard, tmp_path, monkeypatch):
+def test_freeform_job_can_be_rescheduled_via_manage(aiseo_guard, isolate_cron):
     """Reschedule rewrites the Schedule label inside the prompt body; verify
     the free-form marker survives the rewrite so identity holds across edits."""
-    _isolate_cron(tmp_path, monkeypatch)
-
     create = _payload(
         aiseo_guard._aiseo_schedule_task(
             {
@@ -356,13 +321,11 @@ def test_freeform_job_can_be_rescheduled_via_manage(aiseo_guard, tmp_path, monke
     assert aiseo_guard._AISEO_FREEFORM_MARKER in updated["prompt"]
 
 
-def test_freeform_skills_left_empty_for_runtime_selection(aiseo_guard, tmp_path, monkeypatch):
+def test_freeform_skills_left_empty_for_runtime_selection(aiseo_guard, isolate_cron):
     """Free-form jobs should NOT pre-pin skills — cron agent picks at runtime
     via aiseo_skills_read, mirroring interactive task behavior. The job must
     therefore also carry aiseo_skills_read in enabled_toolsets so that the
     runtime can honor the wrapper's load-skill directive."""
-    _isolate_cron(tmp_path, monkeypatch)
-
     from cron.jobs import list_jobs
 
     aiseo_guard._aiseo_schedule_task(

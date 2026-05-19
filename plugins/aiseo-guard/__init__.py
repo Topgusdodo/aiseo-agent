@@ -1176,22 +1176,64 @@ def _same_origin(job: dict, current_origin: Optional[dict[str, str]]) -> bool:
 _AISEO_LEGACY_TOOLSETS = ["web", "search", "browser"]
 _AISEO_FREEFORM_TOOLSETS = ["web", "search", "browser", "aiseo_skills_read"]
 
+# Prefixes produced by the four _build_* prompt builders in aiseo_cli.py.
+# Used to recognise legacy create-from-memory jobs that have no enabled_toolsets.
+_LEGACY_FROM_MEMORY_PREFIXES = (
+    "Run seo-weekly-report on ",
+    "Run technical-seo-audit on ",
+    "Run keyword-opportunity for ",
+    "Run competitor-analysis with ",
+)
+
+# Verified against seeds/aiseo-profile/skills/ on 2026-05-19.
+_KNOWN_AISEO_SKILLS: frozenset[str] = frozenset(
+    {
+        "competitor-analysis",
+        "content-brief",
+        "growflare-seo",
+        "keyword-opportunity",
+        "seo-weekly-report",
+        "technical-seo-audit",
+    }
+)
+
 
 def _is_aiseo_created_job(job: dict) -> bool:
-    prompt = str(job.get("prompt") or "")
-    skills = set(job.get("skills") or [])
     toolsets = job.get("enabled_toolsets")
-    if not (
-        "Run an AISEO scheduled task:" in prompt
-        and toolsets in (_AISEO_LEGACY_TOOLSETS, _AISEO_FREEFORM_TOOLSETS)
-        and not job.get("script")
-        and not job.get("no_agent")
-        and not job.get("workdir")
-    ):
+
+    # Primary path: freeform or legacy-structured jobs created via aiseo_schedule_task.
+    # Both carry a known enabled_toolsets list.
+    if toolsets in (_AISEO_LEGACY_TOOLSETS, _AISEO_FREEFORM_TOOLSETS):
+        prompt = str(job.get("prompt") or "")
+        if not (
+            "Run an AISEO scheduled task:" in prompt
+            and not job.get("script")
+            and not job.get("no_agent")
+            and not job.get("workdir")
+        ):
+            return False
+        if _AISEO_FREEFORM_MARKER in prompt:
+            return True
+        skills = set(job.get("skills") or [])
+        return bool(
+            skills & {skill for cfg in AISEO_TASK_TYPES.values() for skill in cfg["skills"]}
+        )
+
+    # Secondary path: legacy create-from-memory jobs (no enabled_toolsets set by
+    # hermes cron create). Identified by prompt prefix OR aiseo- name + known skills.
+    if toolsets is not None:
+        # Has a different toolsets list — not ours.
         return False
-    if _AISEO_FREEFORM_MARKER in prompt:
+    if any(job.get(k) for k in ("script", "no_agent", "workdir", "context_from")):
+        return False
+    prompt = str(job.get("prompt") or "")
+    if any(prompt.startswith(p) for p in _LEGACY_FROM_MEMORY_PREFIXES):
         return True
-    return bool(skills & {skill for cfg in AISEO_TASK_TYPES.values() for skill in cfg["skills"]})
+    name = (job.get("name") or "").lower()
+    skills = job.get("skills") or []
+    if name.startswith("aiseo-") and skills and all(s in _KNOWN_AISEO_SKILLS for s in skills):
+        return True
+    return False
 
 
 def _infer_task_type(job: dict) -> str:

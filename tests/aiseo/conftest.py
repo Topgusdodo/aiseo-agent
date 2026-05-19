@@ -34,3 +34,25 @@ def aiseo_guard():
     sys.modules["aiseo_guard_plugin"] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def isolate_cron(monkeypatch, tmp_path):
+    """Redirect cron.jobs storage paths to a throwaway tmp_path subtree.
+
+    Extracted from the inline ``_isolate_cron`` helpers in
+    test_aiseo_schedule_task_freeform.py and test_aiseo_schedule_task.py
+    so all cron tests share one canonical isolation mechanism.
+
+    Usage::
+
+        def test_something(aiseo_guard, isolate_cron):
+            aiseo_guard._aiseo_schedule_task({...})
+            from cron.jobs import list_jobs
+            jobs = list_jobs(include_disabled=True)
+            ...
+    """
+    cron_dir = tmp_path / "cron"
+    monkeypatch.setattr("cron.jobs.CRON_DIR", cron_dir)
+    monkeypatch.setattr("cron.jobs.JOBS_FILE", cron_dir / "jobs.json")
+    monkeypatch.setattr("cron.jobs.OUTPUT_DIR", cron_dir / "output")

@@ -1095,12 +1095,21 @@ def _build_cron_prompt(skill_name: str) -> tuple[str, str]:
     return builder()
 
 
+# AISEO_DEPRECATION_DEADLINE: 2026-08-15
 def _run_cron_create_from_memory(skill_name: str) -> None:
     """Handle ``aiseo cron create-from-memory <skill>``.
 
     Reads MEMORY.md, materializes the cron prompt with concrete values,
     then execs ``hermes -p aiseo cron create <schedule> <prompt> --name ... --skill ... --deliver local``.
+
+    DEPRECATED: use ``aiseo_schedule_task`` with a free-form prompt instead.
+    Removal scheduled for 2026-08-15 (see AISEO_DEPRECATION_DEADLINE above).
     """
+    print(
+        "[DEPRECATION] aiseo cron create-from-memory will be removed on 2026-08-15; "
+        "use aiseo_schedule_task with freeform prompt instead",
+        file=sys.stderr,
+    )
     try:
         prompt, schedule = _build_cron_prompt(skill_name)
     except ValueError as exc:
