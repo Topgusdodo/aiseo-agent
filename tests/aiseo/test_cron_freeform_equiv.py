@@ -242,3 +242,31 @@ def test_user_built_job_not_classified_as_aiseo(aiseo_guard):
         "User-built job with natural-language prompt and non-aiseo- name "
         "must not be classified as an AISEO-created job."
     )
+
+
+def test_user_job_with_aiseo_prompt_prefix_not_classified(aiseo_guard):
+    """GPT-review false-positive: a user-built cron job whose prompt happens to
+    start with one of the _LEGACY_FROM_MEMORY_PREFIXES strings (e.g. "Run
+    keyword-opportunity for ...") but has no 'aiseo-' name and empty skills must
+    NOT be classified as an AISEO-created job.
+
+    True _run_cron_create_from_memory jobs always set name=aiseo-{skill} AND
+    skills=[skill] (aiseo_cli.py:994-1110).  Prompt prefix alone is not a
+    sufficient signal — requiring at least one structural corroborator
+    (aiseo- name OR known skills) prevents misclassification.
+    """
+    user_job: dict = {
+        "id": "test-fp-prefix-only",
+        "name": "user-job",          # does NOT start with "aiseo-"
+        "prompt": "Run keyword-opportunity for some-task and report results",
+        "skills": [],                 # empty — no known AISEO skills
+        "enabled_toolsets": None,
+        "script": None,
+        "no_agent": None,
+        "workdir": None,
+        "context_from": None,
+    }
+    assert aiseo_guard._is_aiseo_created_job(user_job) is False, (
+        "User job whose prompt prefix matches _LEGACY_FROM_MEMORY_PREFIXES "
+        "but lacks aiseo- name and known skills must not be classified as AISEO."
+    )

@@ -1227,11 +1227,19 @@ def _is_aiseo_created_job(job: dict) -> bool:
     if any(job.get(k) for k in ("script", "no_agent", "workdir", "context_from")):
         return False
     prompt = str(job.get("prompt") or "")
-    if any(prompt.startswith(p) for p in _LEGACY_FROM_MEMORY_PREFIXES):
-        return True
     name = (job.get("name") or "").lower()
     skills = job.get("skills") or []
-    if name.startswith("aiseo-") and skills and all(s in _KNOWN_AISEO_SKILLS for s in skills):
+
+    has_prompt_prefix = any(prompt.startswith(p) for p in _LEGACY_FROM_MEMORY_PREFIXES)
+    has_aiseo_name = name.startswith("aiseo-")
+    has_known_skills = bool(skills) and all(s in _KNOWN_AISEO_SKILLS for s in skills)
+
+    # Require prompt prefix AND at least one structural signal (name or skills).
+    # True _run_cron_create_from_memory jobs always satisfy all three conditions
+    # (aiseo_cli.py:994-1110). Prompt prefix alone is not sufficient — a user job
+    # whose prompt happens to start with "Run <skill> on/for/with" must not be
+    # misclassified as AISEO-owned and exposed to manage/cancel operations.
+    if has_prompt_prefix and (has_aiseo_name or has_known_skills):
         return True
     return False
 
