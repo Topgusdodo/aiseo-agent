@@ -1125,3 +1125,159 @@ def test_run_sync_command_refresh_soul_routes_to_helper(tmp_path, monkeypatch, c
 
     aiseo_cli._run_sync_command(["--refresh-soul", "-y"])
     assert called == [False], "interactive flag should be False with -y"
+
+
+# ---------------------------------------------------------------------------
+# P1-B — Protection unit tests for the fork-only sync invariants (ADR-001)
+#
+# These tests pin the three durability/safety properties that cannot regress
+# without silently destroying user state. See:
+#   docs/aiseo-agent/ARCHITECTURE.md ADR-001
+#   .plans/profile-sync-upstream-spike.md §2 gaps #3 / #7 / #13
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_config_calls_fsync_on_success_path(tmp_path, monkeypatch):
+    """ADR-001 protection (gap #13): the atomic-write path MUST call
+    ``os.fsync`` on the tmp file before ``atomic_replace`` runs. Without
+    fsync, a power loss between write() and replace() can leave the
+    profile config corrupted with no recovery (upstream profile_distribution
+    has this hazard; AISEO sync must not regress to it)."""
+    original = "toolsets:\n  - web\n"
+    config_path = _make_profile_with_config(tmp_path, original)
+    seed_cfg = _make_seed_config(tmp_path)
+    diff: dict[str, list[str]] = {"added": [], "unchanged": [], "skipped": []}
+
+    fsync_calls: list[int] = []
+    real_fsync = aiseo_cli.os.fsync
+
+    def _spy_fsync(fd):
+        fsync_calls.append(fd)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(aiseo_cli.os, "fsync", _spy_fsync)
+
+    changed = aiseo_cli._migrate_profile_config(seed_cfg, config_path, diff)
+
+    assert changed is True, "migration should succeed on a normal seed/profile pair"
+    assert len(fsync_calls) >= 1, (
+        "os.fsync must be invoked at least once during atomic write; "
+        "missing fsync = durability regression vs ADR-001"
+    )
+    # And the migration result actually landed on disk.
+    assert "- aiseo_skills_read" in config_path.read_text(encoding="utf-8")
+
+
+def test_rolling_backup_keeps_newest_when_pruning(tmp_path, monkeypatch):
+    """ADR-001 protection (gap #3): when pruning beyond MAX_CONFIG_BACKUPS,
+    the survivors MUST be the NEWEST backups by filename timestamp — not
+    the oldest. A wrong sort direction would silently keep stale snapshots
+    and prune the recovery window users actually need."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("body\n", encoding="utf-8")
+
+    # Use 8 deterministic timestamps that sort lexicographically. We will
+    # call _rolling_backup 8 times → expect only the 5 newest to survive
+    # (timestamps 04..08).
+    timestamps = iter(f"20260101_{i:02d}0000" for i in range(1, 9))
+    monkeypatch.setattr(aiseo_cli.time, "strftime", lambda _f: next(timestamps))
+
+    for _ in range(8):
+        result = aiseo_cli._rolling_backup(config_path)
+        assert result is not None and result.exists()
+
+    survivors = sorted(p.name for p in config_path.parent.glob("config.yaml.bak*"))
+    assert len(survivors) == aiseo_cli.MAX_CONFIG_BACKUPS, (
+        f"expected exactly {aiseo_cli.MAX_CONFIG_BACKUPS} survivors, got {survivors}"
+    )
+
+    # Survivors must be the LAST 5 timestamps (04..08), proving newest-wins
+    # ordering. If the sort direction ever flips, this fails loudly.
+    expected_survivors = sorted(
+        f"config.yaml.bak.20260101_{i:02d}0000" for i in range(4, 9)
+    )
+    assert survivors == expected_survivors, (
+        f"rolling backup pruned the wrong end: kept {survivors}, "
+        f"expected newest 5 → {expected_survivors}"
+    )
+
+    # Specifically: the OLDEST timestamps (01..03) must be gone.
+    for old_ts in ("01", "02", "03"):
+        stale = config_path.parent / f"config.yaml.bak.20260101_{old_ts}0000"
+        assert not stale.exists(), (
+            f"oldest backup {stale.name} should have been pruned"
+        )
+
+
+def test_migrate_config_comments_survive_text_level_migration(tmp_path):
+    """ADR-001 protection (gap #7): after a real migration that adds a new
+    list item, EVERY comment line and blank line from the user's original
+    config must appear verbatim in the result. A switch to YAML re-serialize
+    (e.g. yaml.safe_dump like upstream profile_distribution.py uses) would
+    silently strip all comments, breaking user audit trails."""
+    original = (
+        "# === AISEO profile config ===\n"
+        "# DO NOT edit auto-added lines without auditing seed first.\n"
+        "\n"
+        "model: claude-sonnet-4-5     # pinned for cost\n"
+        "\n"
+        "# --- toolsets (curated whitelist) ---\n"
+        "toolsets:\n"
+        "  - web         # primary search backend\n"
+        "  # NOTE: browser is heavy, kept behind explicit opt-in\n"
+        "  - browser\n"
+        "\n"
+        "# --- agent runtime tuning ---\n"
+        "agent:\n"
+        "  max_turns: 90   # user override\n"
+        "  disabled_toolsets:\n"
+        "    - terminal     # never expose shell\n"
+        "\n"
+        "plugins:\n"
+        "  enabled:\n"
+        "    - aiseo-guard   # mandatory defense layer\n"
+    )
+    config_path = _make_profile_with_config(tmp_path, original)
+    seed_cfg = _make_seed_config(tmp_path)  # adds aiseo_skills_read to toolsets
+    diff: dict[str, list[str]] = {"added": [], "unchanged": [], "skipped": []}
+
+    changed = aiseo_cli._migrate_profile_config(seed_cfg, config_path, diff)
+    assert changed is True, "expected additive migration to mutate profile"
+
+    result = config_path.read_text(encoding="utf-8")
+
+    # Every comment line must survive byte-identically.
+    comment_lines = [
+        "# === AISEO profile config ===",
+        "# DO NOT edit auto-added lines without auditing seed first.",
+        "model: claude-sonnet-4-5     # pinned for cost",
+        "# --- toolsets (curated whitelist) ---",
+        "  - web         # primary search backend",
+        "  # NOTE: browser is heavy, kept behind explicit opt-in",
+        "# --- agent runtime tuning ---",
+        "  max_turns: 90   # user override",
+        "    - terminal     # never expose shell",
+        "    - aiseo-guard   # mandatory defense layer",
+    ]
+    for line in comment_lines:
+        assert line in result, (
+            f"comment line stripped by migration: {line!r}\n"
+            f"--- result ---\n{result}"
+        )
+
+    # All four meaningful blank-line separators survive (a YAML re-dump
+    # would collapse them).
+    blank_separator_count = sum(
+        1 for line in result.splitlines() if line == ""
+    )
+    assert blank_separator_count >= 4, (
+        f"expected at least 4 blank-line separators preserved, "
+        f"got {blank_separator_count}; YAML re-dump would collapse them"
+    )
+
+    # And the audit comment for the appended item is present (proves the
+    # migration actually ran, not just a no-op).
+    assert re.search(
+        r"- aiseo_skills_read\s+# auto-added by aiseo sync \d{4}-\d{2}-\d{2}",
+        result,
+    ), "auto-added audit comment missing — migration did not run as expected"

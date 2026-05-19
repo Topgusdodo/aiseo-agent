@@ -91,6 +91,15 @@ use `aiseo sync --refresh-soul` or follow the env warning block. Skills/
 internal file updates are NOT propagated; iterate skills directly in
 `~/.hermes/profiles/aiseo/skills/<name>/`.
 
+**Profile sync is a permanent AISEO fork-only asset** — it does NOT delegate
+to `hermes_cli/profile_distribution.py`. The two implementations have
+opposing semantics (full-replace vs missing-only; `yaml.safe_dump` vs
+text-level merge; bare `shutil.copy2` vs atomic write + fsync + rolling
+backup). Do not "refactor" `aiseo_cli.py` sync to call into the upstream
+distribution module; it would silently destroy user state. See
+`docs/aiseo-agent/ARCHITECTURE.md` ADR-001 (and `.plans/profile-sync-upstream-spike.md`
+for the full 13-point gap matrix and re-evaluation triggers).
+
 ## The aiseo-guard plugin
 
 `plugins/aiseo-guard/` registers four hooks (declared in `plugin.yaml`):

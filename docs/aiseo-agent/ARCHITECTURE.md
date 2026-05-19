@@ -239,3 +239,88 @@ Phase 3 (未来，可选)
 3. 唯一 core 改动是硬 InputGate 必需的 1 个新 hook
 4. 品牌体验由 thin wrapper 提供，不复制 entrypoint
 5. 每个 Phase 工程量最小化，YAGNI 优先
+
+---
+
+## Architecture Decision Records (ADR)
+
+本节按时间顺序记录影响 AISEO fork 长期演进的关键决策。**编号约定**:
+ADR-NNN 按写入顺序单调递增,不复用,不重排。每条记录采用 Context / Decision /
+Consequences 三段结构。
+
+### ADR-001: Profile sync 不复用 `hermes_cli/profile_distribution.py`
+
+- **Status**: Accepted (2026-05-19)
+- **Owner**: AISEO fork maintainer
+- **Supersedes**: 无
+- **Related spike**: [`.plans/profile-sync-upstream-spike.md`](../../.plans/profile-sync-upstream-spike.md)
+
+#### Context
+
+P0-C spike(2026-05-19)对 `hermes_cli/profile_distribution.py`(702 行,
+2026-05-08 已存在于 repo)与 `aiseo_cli.py:60-870`(约 624 行 sync 实现)做了
+13 行为点的 gap matrix 比对。结论是**两套实现的设计哲学根本对立**,不是"小差距
+可桥接",而是"不同问题域"。
+
+上游 `profile_distribution.py` 的语义:
+- distribution-owned 路径**全权由发行者控制**,update 等价于"从 git 重新拉取
+  并全量替换"(`shutil.rmtree(dest)` + `shutil.copytree(entry, dest)`,见
+  `_copy_dist_payload` l.554-563)。
+- `config.yaml` 要么 `preserve_config=True` 整体保留、要么 `--force-config`
+  整体替换,**无 text-level merge**;写入用 `yaml.safe_dump`,丢失注释、anchor、
+  缩进。
+- 写入路径用裸 `shutil.copy2` / `path.write_text`,**无 backup、无 fsync、
+  无 atomic replace**;中途崩溃即损坏文件,且无法恢复。
+- 设计目标:可复现部署,适合"工程团队从 git URL 拉取标准化 profile"场景。
+
+AISEO sync 的语义:
+- seed → profile 是 **additive / missing-only**(`_sync_skills_dir` l.558-573:
+  skill 目录已存在 → 跳过,绝不覆盖用户修改)。
+- `config.yaml` 走 **text-level additive merge**(`_migrate_profile_config`
+  l.400-545):seed 新增 list item → 追加到用户文件,保留注释 / anchor / 缩进 /
+  顺序;用户的标量字段(model、max_turns)永不被自动迁移。
+- 写入用 `tempfile.mkstemp` + `os.fsync` + `atomic_replace`(l.516-526),
+  失败时 tmp 不残留;同时 rolling backup(5 槽)作为安全网。
+- 设计目标:用户在本地 tune skill / 改 config 后 sync 不丢失工作。
+
+**5 个 BLOCKING/SIGNIFICANT gap 上游完全不存在**(gap matrix 详见 spike doc §2):
+#2 additive list migration、#3 rolling backup、#6 skills missing-only、
+#7 YAML 注释保留、#13 atomic write + fsync。
+
+#### Decision
+
+**保留 `aiseo_cli.py` 的 ~624 行 sync 实现作为永久 AISEO fork-only 资产**,
+不复用 `hermes_cli/profile_distribution.py`,不向上游推 PR 试图融合两套语义。
+
+#### Consequences
+
+正面:
+- 用户在本地修改 skill / config 永远不会被 `aiseo sync` 静默覆盖。
+- config.yaml 写入有 atomic + fsync + rolling backup 三层 durability 保护。
+- Hermes 上游 `profile_distribution.py` 演进 0 影响 AISEO sync(无依赖)。
+
+负面:
+- AISEO fork 永久维护 ~624 行 sync 代码,Hermes upgrade 不会自动带来 sync 改进。
+- gap #8(从 git URL 安装 AISEO)不可用 — 当前不需要,遵循 YAGNI;若未来需要,
+  在 `aiseo_cli.py` 单独加 git clone 路径,不引入 distribution.yaml manifest。
+- 若有人在 `seeds/aiseo-profile/` 误加 `distribution.yaml`,可能绕开 AISEO 保护;
+  风险通过 `seeds/aiseo-profile/README.md` 的 CODEOWNERS-style 警告防御。
+
+#### 重评估触发条件
+
+本决策基于 2026-05 上游 `profile_distribution.py` 设计哲学。**默认每季度 review
+一次**(对齐 P0-B 节奏),但以下任一上游变更出现时,**1 周内**重新跑 Gap matrix:
+
+| 上游变更 | 影响 gap | 重评估理由 |
+|---|---|---|
+| `distribution.py` 引入 `distribution_owned` 的 **per-path policy**(允许标 `replace` vs `missing_only`) | #6 skills missing-only | 这是当前 BLOCKING gap 之一;若上游允许 per-path 模式,AISEO 可声明 `skills/: missing_only` 而复用框架 |
+| 上游加入 `config.yaml` 的 **text-level merge hook**(如 `pre_config_write` / `transform_config` callback) | #2 additive list migration + #7 YAML 注释保留 | 另两个 BLOCKING/SIGNIFICANT gap;若上游开放 hook,AISEO 的 `_migrate_profile_config` 可注册成 hook |
+| 上游引入 **backup 机制**(rolling / snapshot / .bak)在 update 路径 | #3 rolling backup 退化为 ACCEPTABLE LOSS | 降低混合实现的安全风险 |
+| 上游引入 **atomic write / fsync** 写入路径 | #13 退化为 ✓ | 同上 |
+
+**不触发重评估**:`distribution.yaml` manifest 字段增量扩展、git URL 解析增强、
+`USER_OWNED_EXCLUDE` 列表扩展(只要 distribution-owned 仍是全替换语义)。
+
+季度 review checklist 详见 spike doc §6.2;若一季度内上游无相关变更,在
+`docs/aiseo-agent/NEXT_STEPS.md` 留一行 `YYYY-Q{n}: profile-sync spike re-review
+— no upstream changes, decision (c) still holds.`

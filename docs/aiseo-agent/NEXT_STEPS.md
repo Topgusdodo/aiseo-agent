@@ -322,3 +322,14 @@ alias aiseo='/Users/topgus/Documents/Project/aiseo/aiseo-agent/bin/aiseo'
 1. **跑** `uv sync && uv run ./hermes setup` → `PATH="$PWD:$PATH" uv run bin/aiseo` 输入"你好"看到 AISEO ✓
 2. **看** `git diff` 满意了 → commit；不满意 → 切回 main 丢掉
 3. **想往下走** → 再发一次 `/prp-implement <PRPs 路径>`，我做 Phase 1
+
+---
+
+### Profile sync 季度 re-evaluation
+
+ADR-001 (`docs/aiseo-agent/ARCHITECTURE.md`) 决定 profile sync 保留为 fork-only 资产。
+每季度第一个月需 review `.plans/profile-sync-upstream-spike.md` §6.2 季度 checklist，
+检查上游 `hermes_cli/profile_distribution.py` 是否引入 missing-only / merge /
+atomic-write / backup 机制。若无变更，在本段下加一行
+`YYYY-Q{n}: no upstream changes` 留 audit 痕迹。
+
