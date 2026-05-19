@@ -12057,6 +12057,14 @@ class AIAgent:
             if _pre_user_message_block is None and _rewritten_text is not None:
                 original_user_message = _rewritten_text
                 user_message = _rewritten_text
+                # Propagate rewrite into the messages array so api_messages
+                # (built from messages[]) sends the sanitized text to the LLM,
+                # not the original user input.
+                if (
+                    0 <= current_turn_user_idx < len(messages)
+                    and messages[current_turn_user_idx].get("role") == "user"
+                ):
+                    messages[current_turn_user_idx]["content"] = _rewritten_text
         except Exception as exc:
             logger.warning("pre_user_message hook failed: %s", exc)
 
