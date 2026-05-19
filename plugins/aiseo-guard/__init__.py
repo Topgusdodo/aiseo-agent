@@ -1580,6 +1580,61 @@ def _external_content_guard(
 # collapses to a single token instead of a slurry of nested replacements.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# AISEO_REDACT_PINNED_COPY — human-pinned snapshot of agent/redact.py
+# _PREFIX_PATTERNS as of 2026-05-19 (35 entries).
+#
+# Design contract:
+#   - This constant is intentionally NOT imported from agent.redact; it is a
+#     manually pinned baseline so CI can detect positive drift (upstream adds
+#     a prefix that our OutputGate doesn't yet cover).
+#   - test_outputgate_drift.py::test_no_upstream_prefix_missing_from_pinned_copy
+#     runs set(_PREFIX_PATTERNS) - set(AISEO_REDACT_PINNED_COPY) and fails if
+#     the result is non-empty — forcing a human decision on every new prefix.
+#   - Reverse drift (upstream deletes a prefix, pinned copy retains it) is
+#     accepted by design: redacting more is the safe side. Prune zombie
+#     patterns during quarterly reviews.
+#   - To update: re-run `python -c "from agent.redact import _PREFIX_PATTERNS;
+#     print(sorted(_PREFIX_PATTERNS))"`, paste below, bump the date comment.
+# ---------------------------------------------------------------------------
+AISEO_REDACT_PINNED_COPY: List[str] = [
+    "AIza[A-Za-z0-9_-]{30,}",
+    "AKIA[A-Z0-9]{16}",
+    r"SG\.[A-Za-z0-9_-]{10,}",
+    "am_[A-Za-z0-9_-]{10,}",
+    "bb_live_[A-Za-z0-9_-]{10,}",
+    "brv_[A-Za-z0-9]{10,}",
+    "doo_v1_[A-Za-z0-9]{10,}",
+    "dop_v1_[A-Za-z0-9]{10,}",
+    "exa_[A-Za-z0-9]{10,}",
+    "fal_[A-Za-z0-9_-]{10,}",
+    "fc-[A-Za-z0-9]{10,}",
+    "gAAAA[A-Za-z0-9_=-]{20,}",
+    "gho_[A-Za-z0-9]{10,}",
+    "ghp_[A-Za-z0-9]{10,}",
+    "ghr_[A-Za-z0-9]{10,}",
+    "ghs_[A-Za-z0-9]{10,}",
+    "ghu_[A-Za-z0-9]{10,}",
+    "github_pat_[A-Za-z0-9_]{10,}",
+    "gsk_[A-Za-z0-9]{10,}",
+    "hf_[A-Za-z0-9]{10,}",
+    "hsk-[A-Za-z0-9]{10,}",
+    "mem0_[A-Za-z0-9]{10,}",
+    "npm_[A-Za-z0-9]{10,}",
+    "pplx-[A-Za-z0-9]{10,}",
+    "pypi-[A-Za-z0-9_-]{10,}",
+    "r8_[A-Za-z0-9]{10,}",
+    "retaindb_[A-Za-z0-9]{10,}",
+    "rk_live_[A-Za-z0-9]{10,}",
+    r"sk-[A-Za-z0-9_-]{10,}",
+    "sk_[A-Za-z0-9_]{10,}",
+    "sk_live_[A-Za-z0-9]{10,}",
+    "sk_test_[A-Za-z0-9]{10,}",
+    "syt_[A-Za-z0-9]{10,}",
+    "tvly-[A-Za-z0-9]{10,}",
+    r"xox[baprs]-[A-Za-z0-9-]{10,}",
+]
+
 OUTPUT_REDACT_PATTERNS: List[Tuple[Pattern[str], str]] = [
     # AISEO user-facing reports must not expose internal tool identifiers
     # or vendor names (vendor name leakage breaks SOUL.md §5).
@@ -1589,10 +1644,11 @@ OUTPUT_REDACT_PATTERNS: List[Tuple[Pattern[str], str]] = [
     (re.compile(r"(?i)\bdataforseo[_\-]?\w*"), "结构化数据源"),
     # Original sk- prefix — kept as belt-and-suspenders.
     (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "[REDACTED_API_KEY]"),
-    # Mirror agent/redact.py:70-106 vendor PAT prefixes so the LLM output
-    # path is covered even if the upstream redactor is bypassed or absent.
-    # Patterns copied (not imported) to keep the plugin self-contained and
-    # avoid runtime circular dependencies on agent.redact internals.
+    # Mirror agent/redact.py vendor PAT prefixes so the LLM output path is
+    # covered even if the upstream redactor is bypassed or absent.
+    # AISEO_REDACT_PINNED_COPY (above) is the source of truth for which
+    # prefixes are tracked here; test_outputgate_drift.py enforces that no
+    # upstream prefix is absent from the pinned copy (CI drift gate).
     (re.compile(r"ghp_[A-Za-z0-9]{10,}"), "[REDACTED_API_KEY]"),
     (re.compile(r"github_pat_[A-Za-z0-9_]{10,}"), "[REDACTED_API_KEY]"),
     (re.compile(r"gho_[A-Za-z0-9]{10,}"), "[REDACTED_API_KEY]"),
