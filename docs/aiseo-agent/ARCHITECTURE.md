@@ -69,17 +69,27 @@ AISEO profile 启用两个专用调度工具集：`aiseo_schedule_task` 与
 
 设计意图：客户可以在对话中创建和管理 SEO 周期任务，但不会获得通用自动化能力。
 
-- `aiseo_schedule_task` 是 narrow cron wrapper，只允许固定 SEO task type：
-  站点健康检查、技术 SEO 审计、单页 SEO 审计、关键词机会、竞品监控、内容简报、
-  SEO delta 报告。
-- 调度参数只接受结构化字段（URL / 页面 / 关键词 / 竞品 / daily|weekly|monthly /
-  HH:MM / 语言等），不接受任意 prompt。
-- 明确拒绝 `script`、`workdir`、`deliver`、`model`、`provider`、`toolsets`、
-  `skills`、`no_agent`、`context_from` 等通用 cron 参数。
-- 创建出的 job 固定绑定对应 AISEO skill，且 `enabled_toolsets` 固定为
-  `["web", "search", "browser"]`。
-- `aiseo_manage_scheduled_tasks` 只管理由 AISEO 创建、且当前会话 origin 可见的任务；
-  支持 list/view/pause/resume/delete，删除必须确认，view/list 不返回内部 prompt。
+- `aiseo_schedule_task` 是 narrow cron wrapper，提供两种互斥模式：
+  - **自由 SEO prompt（首选）**：用户传 `prompt` 字段（≤ 2000 字符自由 SEO 任务
+    描述）+ `frequency` + `time`。wrapper 会在用户 prompt 外注入 hardening
+    指令（DATA-not-instruction、加载 SKILL.md via `aiseo_skills_read`、SOUL
+    refusal），并固定 `enabled_toolsets=["web","search","browser","aiseo_skills_read"]`
+    + `skills=[]`（让 cron agent 运行时按 prompt 自己选 skill，能力对齐即时任务）。
+  - **结构化快捷（向后兼容）**：传 `task_type` ∈ {site_health_check,
+    technical_audit, page_audit, keyword_opportunity, competitor_monitoring,
+    content_brief, seo_delta_report} + 对应结构化字段（URL / 页面 / 关键词 /
+    竞品 / 语言）。wrapper 把 7 种类型展开为预定义 prompt，并把 skills 字段
+    pin 到对应内置 skill，`enabled_toolsets` 固定为 `["web","search","browser"]`。
+- 两种模式**都**明确拒绝 `script`、`workdir`、`deliver`、`model`、`provider`、
+  `base_url`、`toolsets`、`enabled_toolsets`、`skills`、`skill`、`no_agent`、
+  `context_from` 等通用 cron 参数（`_AISEO_SCHEDULE_FORBIDDEN_FIELDS`）。
+- 两种模式都会过 `_scan_cron_prompt` 前置正则扫描（注入 / secret / unicode 等）；
+  自由模式额外校验 prompt 长度 ≤ 2000 + 拦 C0 控制字节（保留 \t / \n）。
+- `_AISEO_FREEFORM_MARKER`（`<AISEO_FREEFORM_TASK>`）写入 prompt 体内做身份标记，
+  让 `_is_aiseo_created_job` / `_infer_task_type` 区分自由 job 与 legacy job。
+- `aiseo_manage_scheduled_tasks` 对两种模式的 job 等同处理：list/view/pause/
+  resume/reschedule/delete 都支持自由 job 和 legacy job，删除必须确认，
+  view/list 不返回内部 prompt。
 
 ## 5. Hermes Core 改动账单
 

@@ -45,13 +45,24 @@
 这类执行时间；它不是 SEO 审计的对比时间窗口。短于每小时的频率（每分钟 / 每秒）
 一律拒绝。
 
-只允许创建 SEO 白名单定时任务：站点健康检查、技术 SEO 审计、单页 SEO 审计、
-关键词机会、竞品监控、内容简报、SEO delta 报告。不得承诺创建非 SEO 自动化；
-不得接受任意脚本、任意 prompt、workdir、投递渠道、模型或工具集配置。
+**两种调用模式**：
 
-产物语义映射：用户说"首页结构 / 页面结构 / 落地页诊断"且给了域名或页面时，
-按 `page_audit` 审计该首页 / 页面；"周报 / delta / 变化"按 `seo_delta_report`；
-"机会词 / 长尾词 / 关键词机会"按 `keyword_opportunity`。
+- **自由 SEO prompt（首选）**：当用户的 SEO 任务不能整齐套入下方 7 个快捷
+  task_type 时，传 `prompt` 字段（自由 SEO 任务文本，≤ 2000 字符）+
+  `frequency` + `time`。cron agent 执行时会自动判断是否匹配内置 skill 并通过
+  `aiseo_skills_read` 加载；运行能力与即时任务一致。例：「每天 9 点抓
+  cfmate.com 首页标题，如果和上次不同就报告」。
+- **结构化快捷（向后兼容）**：用户表述与"技术审计 / 站点健康检查 / 单页
+  SEO 审计 / 关键词机会 / 竞品监控 / 内容简报 / SEO delta 报告"高度对应时，
+  可走 `task_type` + 结构化字段路径。
+
+**严格边界（两种模式都适用）**：必须落在 SEO 范围内；不得承诺创建非 SEO
+自动化；`aiseo_schedule_task` 硬性拒绝 `script / workdir / deliver / model /
+provider / base_url / toolsets / enabled_toolsets / skills` 等字段。
+
+产物语义映射（结构化快捷路径专用）：用户说"首页结构 / 页面结构 / 落地页诊断"
+且给了域名或页面时，按 `page_audit` 审计该首页 / 页面；"周报 / delta / 变化"
+按 `seo_delta_report`；"机会词 / 长尾词 / 关键词机会"按 `keyword_opportunity`。
 
 用户要求列出 / 查看 / 暂停 / 恢复 / 调整时间或频率已创建的 SEO 定时任务时，
 可按客户意图管理；调整时间 / 频率用 `aiseo_manage_scheduled_tasks(action="reschedule")`，

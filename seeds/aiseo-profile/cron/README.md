@@ -14,9 +14,19 @@
 每月生成关键词 "AI SEO tools" 的内容简报。
 ```
 
-AISEO 会创建受限的 SEO 定时任务：只接受结构化 SEO 字段，不接受任意 prompt、
-脚本、workdir、投递平台、模型或工具集配置。通用 `cronjob` 在 AISEO profile 中
-仍然禁用；对话里开放的是 AISEO 专用的安全调度能力。
+AISEO 会创建受限的 SEO 定时任务，支持两种互补模式：
+
+- **自由 SEO prompt（首选）**：客户直接用自然语言描述任务（≤ 2000 字符）+
+  频率 + 时间，例如「每天 9 点抓 example.com 首页标题，如果和上次不同就报告」。
+  cron agent 执行时会通过 `aiseo_skills_read` 自动加载匹配的 skill，能力与
+  即时任务一致。
+- **结构化快捷（向后兼容）**：客户表述与下方 7 个内置任务类型高度对应时，可走
+  `task_type` + 结构化字段（URL / 关键词 / 竞品）路径。
+
+**两种模式都明确拒绝**：脚本、workdir、投递平台、模型 / provider / base_url、
+任意 toolsets / enabled_toolsets / skills 配置；非 SEO 自动化一律不创建。
+通用 `cronjob` 在 AISEO profile 中仍然禁用；对话里开放的是 AISEO 专用的
+安全调度能力。
 
 | 对话任务类型 | 需要的信息 | 默认周期 |
 |---|---|---|
@@ -155,8 +165,8 @@ Hermes 当前的 cron 子系统**需要用户显式运行**（如 cron daemon �
 
 | 现象 | 检查 |
 |---|---|
-| 对话里无法创建任务 | 确认任务属于 SEO 白名单，并提供了必要 URL / 关键词 / 竞品 / 时间 |
-| 提示不支持字段 | 不要要求脚本、任意 prompt、workdir、指定投递平台、模型、工具集或非 SEO 自动化 |
+| 对话里无法创建任务 | 确认为 SEO 任务（自由 prompt 可用任意 SEO 场景）；走结构化快捷时提供必要 URL / 关键词 / 竞品 / 时间 |
+| 提示不支持字段 | 不要要求脚本、workdir、指定投递平台、模型、工具集或非 SEO 自动化（自由 SEO prompt 字段本身现在是允许的） |
 | 列表看不到任务 | 只显示当前会话来源可见、由 AISEO 对话式创建的任务；CLI 手工创建或其他会话来源的任务可能不会显示 |
 | 删除失败 | 删除必须提供 job ID 且明确确认 |
 | 作业 dispatch 但 LLM 0 工具调用 | MEMORY.md 缺主站点/关键词；按 prompt 中的"ask the user"分支跳过了 |

@@ -11,8 +11,14 @@
 > 通过专用能力创建 `site_health_check` / `technical_audit` / `page_audit` /
 > `keyword_opportunity` / `competitor_monitoring` / `content_brief` /
 > `seo_delta_report`，并支持对话式 list / view / pause / resume / delete。
-> 通用 `cronjob` 仍禁用；脚本、workdir、任意投递、任意 prompt、模型和工具集覆盖
-> 均不开放。
+> 通用 `cronjob` 仍禁用；脚本、workdir、任意投递、模型和工具集覆盖均不开放。
+>
+> **2026-05-19 scheduling update**：`aiseo_schedule_task` 新增**自由 SEO prompt**
+> 模式（首选）。客户可直接说「每天 9 点抓 cfmate.com 首页标题」这类自由 SEO
+> 任务，cron agent 运行时通过 `aiseo_skills_read` 自动加载匹配 skill，能力与
+> 即时任务一致。上面 7 个 `task_type` 仍可用作结构化快捷（向后兼容）。
+> 拒绝面不变：script / workdir / deliver / model / provider / base_url /
+> toolsets / enabled_toolsets / skills 仍硬拦。
 
 ## 当前 RC Blockers（按优先级）
 

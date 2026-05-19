@@ -104,7 +104,14 @@ internal file updates are NOT propagated; iterate skills directly in
 
 The plugin also provides two **narrow** scheduling tools (`aiseo_schedule_task`,
 `aiseo_manage_scheduled_tasks`) that replace the disabled generic `cronjob`
-toolset — they accept structured SEO task types only, never free-form prompts.
+toolset. `aiseo_schedule_task` supports two mutually-exclusive modes:
+(a) **free-form SEO prompt** — pass `prompt` (≤ 2000 chars) and the cron
+agent auto-loads matching SKILL.md at runtime via `aiseo_skills_read`,
+giving scheduled tasks the same expressivity as interactive tasks;
+(b) **structured shortcut** — pass `task_type` from a 7-value enum plus
+its required structured fields. Both modes hard-reject `script / workdir /
+deliver / model / provider / base_url / toolsets / enabled_toolsets / skills /
+no_agent / context_from` (see `_AISEO_SCHEDULE_FORBIDDEN_FIELDS`).
 
 Profile-level defense in depth lives in `seeds/aiseo-profile/config.yaml`:
 `agent.disabled_toolsets` boots without `terminal`, `code_execution`, `delegation`,

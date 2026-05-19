@@ -186,7 +186,8 @@ def test_schedule_task_rejects_invalid_time_frequency_and_task_type(aiseo_guard)
         )
     )
     assert bad_task["success"] is False
-    assert "task_type must be one of" in bad_task["error"]
+    assert "task_type" in bad_task["error"]
+    assert "technical_audit" in bad_task["error"]
 
 
 def test_schedule_task_rejects_competitor_private_target(aiseo_guard):
