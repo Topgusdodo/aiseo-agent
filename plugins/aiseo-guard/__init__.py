@@ -30,6 +30,10 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+
+# CGNAT block (RFC 6598, 100.64.0.0/10).  Built once at module load to avoid
+# reconstructing the network object on every call to _is_private_host.
+_CGNAT_NETWORK = ipaddress.IPv4Network("100.64.0.0/10")
 import os
 import re
 from urllib.parse import urlparse
@@ -556,10 +560,19 @@ def _tool_error(message: str) -> str:
 
 
 def _is_private_host(host: str) -> bool:
-    """Return True if *host* resolves to a private/loopback/reserved address.
+    """Return True if *host* resolves to a private/loopback/reserved/CGNAT/multicast address.
 
-    Uses stdlib ``ipaddress`` so numeric representations that ``int()`` handles
-    correctly (e.g. standard decimal dotted quads) are classified correctly.
+    Uses stdlib ``ipaddress`` plus explicit checks for address ranges that the
+    stdlib ``is_*`` flags do not cover:
+
+    - CGNAT (RFC 6598, 100.64.0.0/10): ``is_private`` is False, ``is_global``
+      is False, ``is_reserved`` is False — no stdlib flag catches this range,
+      so we check against ``_CGNAT_NETWORK`` explicitly.
+    - Multicast (224.0.0.0/4 for IPv4, ff00::/8 for IPv6): caught via
+      ``addr.is_multicast`` which was previously absent from this guard.
+
+    Aligned with ``tools/url_safety.py::_is_blocked_ip()`` coverage.
+
     Non-IP hostnames (domain labels) raise ``ValueError`` inside
     ``ipaddress.ip_address`` and we return ``False`` — the caller's hostname
     suffix / no-dot checks are responsible for those.
@@ -575,6 +588,8 @@ def _is_private_host(host: str) -> bool:
             or addr.is_link_local
             or addr.is_unspecified
             or addr.is_reserved
+            or addr.is_multicast
+            or (isinstance(addr, ipaddress.IPv4Address) and addr in _CGNAT_NETWORK)
         )
     except ValueError:
         return False
