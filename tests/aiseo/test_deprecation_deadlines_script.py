@@ -97,6 +97,35 @@ def test_expired_branch_fails(tmp_path: Path) -> None:
     assert "EXPIRED" in result.stderr
 
 
+def test_deadline_today_fails(tmp_path: Path) -> None:
+    """Per script header contract: today >= deadline must fail (off-by-one fix).
+
+    A marker whose deadline is exactly today's date must trip [EXPIRED] and
+    exit non-zero. Before the fix, `[[ "$raw" < "$TODAY" ]]` (strict less-than)
+    silently passed on the deadline day — CI was unblocked for a full 24 hours
+    beyond the stated governance gate.
+    """
+    from datetime import date
+
+    # Arrange — dynamically use today so the test is correct on any run date.
+    today_str = date.today().isoformat()
+    fixture = tmp_path / "deadline_today.py"
+    fixture.write_text(_marker_line(today_str), encoding="utf-8")
+
+    # Act
+    result = _run_script(tmp_path)
+
+    # Assert — today >= deadline, so the gate must fire.
+    assert result.returncode == 1, (
+        f"expected non-zero exit when deadline == today ({today_str!r}); "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "EXPIRED" in result.stderr, (
+        f"expected [EXPIRED] in stderr for deadline == today; "
+        f"stderr={result.stderr!r}"
+    )
+
+
 def test_clean_future_deadline_passes(tmp_path: Path) -> None:
     """A marker dated in the far future must exit 0 silently."""
     # Arrange — 2099-01-01 is far enough out to outlast any reasonable

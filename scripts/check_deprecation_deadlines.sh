@@ -28,7 +28,7 @@ while IFS= read -r line; do
         FAILURES=$((FAILURES + 1))
         continue
     fi
-    if [[ "$raw" < "$TODAY" ]]; then
+    if [[ ! "$raw" > "$TODAY" ]]; then
         echo "[EXPIRED] $line" >&2
         FAILURES=$((FAILURES + 1))
     fi
