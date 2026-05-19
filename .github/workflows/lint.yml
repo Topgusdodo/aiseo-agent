@@ -200,3 +200,23 @@ jobs:
 
       - name: Run footgun checker
         run: python scripts/check-windows-footguns.py --all
+
+  deprecation-deadlines:
+    # Scans the repo for `# AISEO_DEPRECATION_DEADLINE: YYYY-MM-DD` markers
+    # (see .plans/upstream-reuse-audit.md §P2-C) and fails the build if any
+    # marker has expired or is malformed. Pairs with the upstream-push ledger
+    # so AISEO-only forks of upstream-bound capability cannot silently outlive
+    # their stated removal date.
+    #
+    # This is a GOVERNANCE gate, not a code-quality gate. A red build here means
+    # a human decision is required (graduate upstream, delete the code, or defer
+    # with explicit team sign-off). Do NOT silently bump dates to pass CI.
+    name: Deprecation deadlines (blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run deadline checker
+        run: bash scripts/check_deprecation_deadlines.sh

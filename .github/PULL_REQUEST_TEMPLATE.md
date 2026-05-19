@@ -59,6 +59,7 @@ Fixes #
 - [ ] I've updated `CONTRIBUTING.md` or `AGENTS.md` if I changed architecture or workflows — or N/A
 - [ ] I've considered cross-platform impact (Windows, macOS) per the [compatibility guide](https://github.com/NousResearch/hermes-agent/blob/main/CONTRIBUTING.md#cross-platform-compatibility) — or N/A
 - [ ] I've updated tool descriptions/schemas if I changed tool behavior — or N/A
+- [ ] If this PR adds capability that should be pushed upstream to Hermes, I've added/updated a row in `.plans/upstream-push-ledger.md` — or N/A
 
 ## For New Skills
 
