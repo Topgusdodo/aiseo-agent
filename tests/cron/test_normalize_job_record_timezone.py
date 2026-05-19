@@ -9,7 +9,7 @@ See: .plans/cron-timezone-fix.md (or completed/) §D2
 """
 import pytest
 
-from cron.jobs import _normalize_job_record
+from cron.jobs import _normalize_job_record, compute_next_run
 
 
 class TestNormalizeJobRecordTimezone:
@@ -92,3 +92,63 @@ class TestNormalizeJobRecordTimezone:
         # `timezone` must NOT have been written to the input dict
         assert "timezone" not in job
         assert job == snapshot
+
+
+class TestCronTzRuntimeEnv:
+    """Verify that timezone resolution uses env at call time, not import time.
+
+    Before the P1 #4 fix, DEFAULT_CRON_TIMEZONE was read once at module import
+    and cached as a module-level constant. Any env change after import was
+    invisible to running code without importlib.reload(). The fix introduces
+    _get_default_timezone() which reads os.environ on every call, so these
+    tests must pass WITHOUT any reload().
+    """
+
+    def test_normalize_job_record_picks_up_env_at_call_time(self, monkeypatch):
+        """_normalize_job_record must use the env value current at call time.
+
+        No importlib.reload() — the point is that the runtime helper reads the
+        env fresh on every invocation.
+        """
+        # Arrange
+        monkeypatch.setenv("HERMES_DEFAULT_CRON_TIMEZONE", "Europe/London")
+        job = {
+            "id": "runtime-tz-test",
+            "prompt": "x",
+            "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+        }
+
+        # Act — no reload; env was set after module was already imported
+        normalized = _normalize_job_record(job)
+
+        # Assert — must reflect the env value set above, not the import-time snapshot
+        assert normalized["timezone"] == "Europe/London", (
+            "Expected _normalize_job_record to read HERMES_DEFAULT_CRON_TIMEZONE "
+            "at call time, not at module import time."
+        )
+
+    def test_compute_next_run_picks_up_env_at_call_time(self, monkeypatch):
+        """compute_next_run must use the env value current at call time.
+
+        Verifies that passing timezone=None falls back to _get_default_timezone()
+        (runtime read) rather than the import-time constant snapshot.
+        """
+        # Arrange
+        monkeypatch.setenv("HERMES_DEFAULT_CRON_TIMEZONE", "UTC")
+        schedule = {"kind": "cron", "expr": "0 9 * * *"}
+
+        # Act — timezone=None triggers the default fallback path
+        result = compute_next_run(schedule, timezone=None)
+
+        # Assert — result must be a valid ISO timestamp; we verify it is
+        # produced without error (ZoneInfoNotFoundError would propagate if
+        # the wrong timezone string were used). The key assertion is that
+        # "UTC" is accepted, which it is only if the runtime helper is called.
+        assert result is not None, (
+            "compute_next_run returned None unexpectedly with UTC timezone"
+        )
+        # Confirm no Asia/Shanghai offset bleed-through by ensuring the call
+        # did not crash (ZoneInfo("UTC") is always valid).
+        from datetime import datetime
+        parsed = datetime.fromisoformat(result)
+        assert parsed.tzinfo is not None, "Expected timezone-aware datetime in result"

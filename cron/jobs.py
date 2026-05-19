@@ -50,7 +50,21 @@ ONESHOT_GRACE_SECONDS = 120
 # carry its own ``timezone`` field. The aiseo fork defaults to Asia/Shanghai
 # (primary user locale); upstream Hermes users can override via the
 # HERMES_DEFAULT_CRON_TIMEZONE env var.
-DEFAULT_CRON_TIMEZONE: str = os.environ.get("HERMES_DEFAULT_CRON_TIMEZONE", "Asia/Shanghai")
+def _get_default_timezone() -> str:
+    """Resolve default cron timezone at runtime (not at import time).
+
+    Honors HERMES_DEFAULT_CRON_TIMEZONE env var if set, otherwise falls
+    back to Asia/Shanghai. Reading at runtime means long-lived processes
+    pick up env changes made after import and tests do not require
+    importlib.reload() to observe a monkeypatched env var.
+    """
+    return os.environ.get("HERMES_DEFAULT_CRON_TIMEZONE", "Asia/Shanghai")
+
+
+# Module-level alias retained for backward compatibility with any external
+# code that imports DEFAULT_CRON_TIMEZONE directly. Internal business logic
+# always calls _get_default_timezone() so it is never stale.
+DEFAULT_CRON_TIMEZONE: str = _get_default_timezone()
 
 
 def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = None) -> List[str]:
@@ -137,7 +151,7 @@ def _normalize_job_record(job: Dict[str, Any]) -> Dict[str, Any]:
 
     tz = _coerce_job_text(normalized.get("timezone")).strip()
     if not tz:
-        normalized["timezone"] = DEFAULT_CRON_TIMEZONE
+        normalized["timezone"] = _get_default_timezone()
 
     return normalized
 
@@ -422,16 +436,16 @@ def compute_next_run(
         # Resolve the cron-interpretation timezone.  Invalid timezone strings
         # fall back to the process default rather than crashing — cron jobs
         # should keep running even if a hand-edited jobs.json carries garbage.
-        tz_name = (timezone or "").strip() or DEFAULT_CRON_TIMEZONE
+        tz_name = (timezone or "").strip() or _get_default_timezone()
         try:
             tz = ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
             logger.warning(
                 "Invalid timezone %r for cron schedule; falling back to %s",
                 tz_name,
-                DEFAULT_CRON_TIMEZONE,
+                _get_default_timezone(),
             )
-            tz = ZoneInfo(DEFAULT_CRON_TIMEZONE)
+            tz = ZoneInfo(_get_default_timezone())
 
         # Use last_run_at as the croniter base when available, consistent
         # with interval jobs.  This ensures that after a crash/restart,
@@ -633,7 +647,7 @@ def create_job(
 
     # Timezone: validate and fall back to default. Invalid IANA names raise
     # at create time so the bad config never lands in jobs.json.
-    normalized_timezone = (timezone or "").strip() or DEFAULT_CRON_TIMEZONE
+    normalized_timezone = (timezone or "").strip() or _get_default_timezone()
     try:
         ZoneInfo(normalized_timezone)
     except ZoneInfoNotFoundError as exc:
@@ -760,7 +774,7 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
             updated["skills"] = normalized_skills
             updated["skill"] = normalized_skills[0] if normalized_skills else None
 
-        current_timezone = updated.get("timezone") or DEFAULT_CRON_TIMEZONE
+        current_timezone = updated.get("timezone") or _get_default_timezone()
 
         if schedule_changed:
             updated_schedule = updated["schedule"]
