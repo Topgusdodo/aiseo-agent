@@ -259,28 +259,41 @@ def test_phase2_report_templates_present():
 def test_bin_aiseo_help_has_no_hermes_literal():
     """Plan §847 acceptance — `aiseo --help` output must not contain 'Hermes'.
 
-    Lowercase 'hermes' in paths / env var names like HERMES_HOME is allowed
-    (technical identifier, not brand exposure). We only check the literal
-    capitalised 'Hermes'.
+    bin/aiseo now delegates entirely to aiseo_cli.py::main(); the AISEO_HELP
+    constant lives in aiseo_cli.py. Lowercase 'hermes' in paths / env var names
+    like HERMES_HOME is allowed (technical identifier, not brand exposure). We
+    only check the literal capitalised 'Hermes'.
     """
-    wrapper = (REPO_ROOT / "bin" / "aiseo").read_text()
-    start = wrapper.find("AISEO_HELP")
-    assert start > 0, "AISEO_HELP heredoc marker missing"
-    end = wrapper.find("AISEO_HELP", start + len("AISEO_HELP"))
-    assert end > start, "AISEO_HELP heredoc end marker missing"
-    help_block = wrapper[start:end]
-    assert "Hermes" not in help_block, (
-        f"branded --help block leaks 'Hermes' literal — plan §847"
+    import aiseo_cli
+
+    help_text = aiseo_cli.AISEO_HELP
+    assert "Hermes" not in help_text, (
+        "AISEO_HELP constant in aiseo_cli.py leaks 'Hermes' literal — plan §847"
     )
 
 
 def test_bin_aiseo_routes_no_args_to_chat_and_args_to_subcommands():
-    """`aiseo setup` must route to setup, not become a chat prompt."""
+    """`aiseo setup` must route to setup, not become a chat prompt.
+
+    bin/aiseo now delegates all routing to aiseo_cli.py::main(). Verify the
+    routing logic lives in the Python entry point and that the bash wrapper
+    delegates to aiseo_cli rather than containing its own routing logic.
+    """
+    import inspect
+
+    import aiseo_cli
+
+    source = inspect.getsource(aiseo_cli.main)
+    # No-arg path must default to chat
+    assert "chat" in source, "main() must route no-arg invocation to chat"
+    # Arg passthrough must use execvp
+    assert "execvp" in source, "main() must exec into hermes to pass args through"
+    # The bash wrapper must delegate to aiseo_cli.py, not contain routing logic
     wrapper = (REPO_ROOT / "bin" / "aiseo").read_text()
-    assert 'if [ "$#" -eq 0 ]; then' in wrapper
-    assert "-p aiseo chat" in wrapper
-    assert '-p aiseo "$@"' in wrapper
-    assert '-p aiseo chat "$@"' not in wrapper
+    assert "aiseo_cli" in wrapper, "bin/aiseo must delegate to aiseo_cli.py"
+    assert 'if [ "$#" -eq 0 ]' not in wrapper, (
+        "bin/aiseo must not contain arg-routing logic — that lives in aiseo_cli.py"
+    )
 
 
 # ---------------------------------------------------------------------------

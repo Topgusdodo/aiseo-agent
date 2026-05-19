@@ -1,92 +1,11 @@
 #!/usr/bin/env bash
-# bin/aiseo — thin wrapper for AISEO Agent
-#
-# Responsibilities:
-#   1. D17 bootstrap: on first run, copy seeds/aiseo-profile/ to
-#      ~/.hermes/profiles/aiseo/ via pure mkdir + cp -R (no `hermes profile create`).
-#   2. Phase 2 branded --help intercept: -h / --help prints AISEO-style usage
-#      without exposing the underlying runtime name. All other args passthrough.
-#   3. With no args, enter chat by default; with args, pass them through as
-#      profile-scoped runtime subcommands. HERMES_CMD env override lets users
-#      set "uv run hermes" when not globally installed.
-#
-# Compatibility:
-#   - macOS / Darwin: avoid `readlink -f` (BSD readlink lacks -f).
-#     Use `cd -P` with BASH_SOURCE for script-dir resolution.
-#   - Supports invocation via symlink, absolute path, or $PATH.
-
+# bin/aiseo — thin wrapper; all logic lives in aiseo_cli.py::main().
 set -euo pipefail
 
-# Resolve script + repo directories without depending on GNU readlink.
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd -P )"
 REPO_ROOT="$( cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd -P )"
-SEED_DIR="$REPO_ROOT/seeds/aiseo-profile"
-PROFILE_DIR="${HERMES_HOME:-$HOME/.hermes}/profiles/aiseo"
 
-# Phase 2 D16 — branded --help intercept (before bootstrap so a fresh clone
-# can `aiseo --help` without triggering profile create).
-# Match exactly `-h` or `--help` as the first argument; anything else (including
-# subcommands that may use --help internally) passes through to the runtime.
-if [ "$#" -gt 0 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
-  cat <<'AISEO_HELP'
-AISEO Agent — SEO 战略 / 技术审计 / 内容运营 advisor
-
-Usage:
-  aiseo                       # 启动 AISEO 交互式聊天（默认）
-  aiseo -h | --help           # 显示此帮助
-
-可用 SEO Skill（按使用频率排序）:
-  growflare-seo               单页 SEO 审计（输入 1 个 URL）
-  keyword-opportunity         关键词机会分析（seed keyword 或域名）
-  technical-seo-audit         站点级技术审计（robots / sitemap / hreflang）
-  competitor-analysis         竞品对比（用户站 + 2-5 竞品 URL）
-  content-brief               内容简报 / 写作 outline 生成
-  seo-weekly-report           周报 delta（基于 memory 中的站点 + 历次快照）
-
-首次启动:
-  - 首次运行会自动 bootstrap profile 到 ~/.hermes/profiles/aiseo/
-  - 在 aiseo profile 中也需要配置 LLM provider（独立于 default profile）：
-      aiseo setup
-    或直接复用 default profile 的配置：
-      cp ~/.hermes/.env ~/.hermes/profiles/aiseo/.env
-
-工具集合:
-  - 启用：Web Search & Scraping (search/extract) + Browser Automation
-  - 禁用：terminal / file / code execution / messaging / delegation
-  - 安全边界：4 道 guard（输入审核 / 工具白名单 / 网页内容隔离 / 输出脱敏）
-
-环境变量:
-  HERMES_HOME       覆盖默认 profile 根目录（默认 ~/.hermes）
-  HERMES_CMD        覆盖底层调用命令（默认 'hermes'；可设为 'uv run hermes'）
-
-文档:
-  - 安装与首次配置：docs/aiseo-agent/NEXT_STEPS.md
-  - 架构说明：docs/aiseo-agent/ARCHITECTURE.md
-  - Cron 模板：seeds/aiseo-profile/cron/README.md
-  - 提交反馈：https://github.com/(your-fork)/issues
-
-退出:
-  在聊天中按 Ctrl-D 或输入 /exit 退出会话。
-AISEO_HELP
-  exit 0
-fi
-
-# D17 bootstrap: pure filesystem operations; no hermes profile create / install.
-if [ ! -d "$PROFILE_DIR" ]; then
-  if [ ! -d "$SEED_DIR" ]; then
-    echo "[aiseo] error: seed directory not found at $SEED_DIR" >&2
-    exit 1
-  fi
-  echo "[aiseo] First run — bootstrapping profile at $PROFILE_DIR ..." >&2
-  mkdir -p "$PROFILE_DIR"
-  cp -R "$SEED_DIR/." "$PROFILE_DIR/"
-  echo "[aiseo] Profile ready. Run 'aiseo setup' if you have not configured a provider yet." >&2
-fi
-
-# Default UX: `aiseo` starts chat. Any explicit arg is a profile-scoped runtime
-# subcommand, e.g. `aiseo setup`, `aiseo cron list`, or `aiseo model`.
-if [ "$#" -eq 0 ]; then
-  exec ${HERMES_CMD:-hermes} -p aiseo chat
-else
-  exec ${HERMES_CMD:-hermes} -p aiseo "$@"
-fi
+export AISEO_BRAND_ACTIVE=1
+# PYTHON env var is a test-only override; users should not set it manually
+# (forcing an incompatible interpreter will fail with cryptic SyntaxError).
+exec "${PYTHON:-python3}" "$REPO_ROOT/aiseo_cli.py" "$@"
