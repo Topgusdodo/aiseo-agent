@@ -283,6 +283,21 @@ def _matches_trusted_suffix(hostname: str) -> bool:
     return False
 
 
+def _is_benchmark_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True when the IP is in the RFC 2544 benchmark test range (198.18.0.0/15).
+
+    Some SEO tools and corporate networks mis-resolve public domains to this
+    range. Trusted SEO HTTPS hosts are permitted to resolve here to break
+    retry storms. This range and nothing else — loopback, RFC-1918, and CGNAT
+    are NOT covered by this exception.
+    """
+    _BENCHMARK_NETWORK = ipaddress.IPv4Network("198.18.0.0/15")
+    try:
+        return isinstance(ip, ipaddress.IPv4Address) and ip in _BENCHMARK_NETWORK
+    except Exception:
+        return False
+
+
 def _allows_private_ip_resolution(hostname: str, scheme: str) -> bool:
     """Return True when a trusted HTTPS hostname may bypass IP-class blocking.
 
@@ -350,12 +365,19 @@ def is_safe_url(url: str) -> bool:
                 )
                 return False
 
-            if not allow_all_private and not allow_private_ip and _is_blocked_ip(ip):
-                logger.warning(
-                    "Blocked request to private/internal address: %s -> %s",
-                    hostname, ip_str,
-                )
-                return False
+            blocked = _is_blocked_ip(ip)
+            if not allow_all_private and blocked:
+                # Trusted SEO HTTPS hosts may only bypass blocking for the
+                # RFC 2544 benchmark range (198.18.0.0/15) — the original
+                # intent. Loopback (127.x), RFC-1918 (10.x/172.16.x/192.168.x),
+                # CGNAT (100.64.x), and all other private ranges are always
+                # blocked even for trusted domains (DNS rebinding defence).
+                if not (allow_private_ip and _is_benchmark_ip(ip)):
+                    logger.warning(
+                        "Blocked request to private/internal address: %s -> %s",
+                        hostname, ip_str,
+                    )
+                    return False
 
         if allow_all_private:
             logger.debug(
