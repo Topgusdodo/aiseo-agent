@@ -62,3 +62,20 @@ plugins:
                                         # Tools grey out when DATAFORSEO_BASE64
                                         # env var is unset; see .env.example for
                                         # how to generate the base64 token.
+
+# Anthropic prompt cache TTL — upstream default is "5m" (hermes_cli/config.py:739).
+# AISEO cron tasks reuse the same system prompt + skill files on a daily / weekly
+# cadence, so 1h gives a much higher hit rate than 5m. Cache lives outside the
+# 4-hook defence chain (InputGate/ToolGate/external-content/OutputGate) so this
+# is a pure cost lever with no safety trade-off.
+prompt_caching:
+  cache_ttl: "1h"
+
+# Tool loop circuit breaker — upstream defaults are warnings on, hard_stop off
+# (hermes_cli/config.py:713-726). AISEO cron jobs run unattended under
+# skip_memory=True; a same_tool_failure loop can bill overnight before anyone
+# notices. The 4-hook defence chain does not cover semantic repetition, so this
+# hard_stop is the only cost-runaway brake. warn-after 3 / hard-stop-after 8
+# match the upstream-recommended thresholds.
+tool_loop_guardrails:
+  hard_stop_enabled: true
