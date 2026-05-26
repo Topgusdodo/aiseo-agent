@@ -179,6 +179,7 @@ AISEO 计划接入 SaaS、服务多个客户。每个客户需要**独立**的�
 - [x] distribution 改造方案 + `distribution.yaml` 草案就绪（§12.A）。
 - [x] 薄控制面 + 开通流程 + 租户注册表 schema 就绪（§12.B）。
 - [x] Phase 1 实测剧本就绪、命令 flag 已核实（§12.C）。
+- [x] **Phase 0 单租户基线已验证**（2026-05-26 Vultr 生产）：`hermes-gateway-aiseo.service` enabled+active、`Linger=yes`、ExecStart `--profile aiseo` + `Environment=HERMES_HOME=/root/.hermes/profiles/aiseo`（双重显式绑定，不依赖 `active_profile`——即使 active_profile=default 也铁定绑 aiseo，见 `main.py:147-159`）→ 重启/崩溃/登出自动以 aiseo 恢复，无分叉风险。**此 unit 即 §9「每 gateway 显式 -p + HERMES_HOME」硬约束的活样板，Phase 3 开通脚本生成的 per-tenant gateway unit 应照此形态。**
 - [x] **Phase 1 隔离实测通过**（2026-05-26 本地 macOS 验证，机制与机器无关）：`aiseo cron list` 仅含 aiseo 的 3 个 job、`tenant-test` 仅含自己的 1 个；两个 `jobs.json` 物理隔离；`delete --yes` 干净回滚。**额外实证**：① `--clone` 不复制 `cron/`（tenant-test 克隆自 aiseo 但 cron 为空，未继承 aiseo 的 freeform job）→ §12.C 隔离前提成立；② aiseo 的 `jobs.json` 中既有终端建的 job、又有 `origin.platform=feishu` 的 job → 印证飞书 gateway 已与终端共享 aiseo profile（排障结论闭环）。
 - [ ] 实施 distribution 时：把 seed 的 4 个 cron 模板移到 `references/cron-templates/`；repo 加 `.gitignore`（`cron/`、`memories/`、`.env`）+ CI 顶层目录白名单校验。
 - [x] 已加入 CLAUDE.md 的 `.plans/` 文档清单（`CLAUDE.md:20-21`）。
