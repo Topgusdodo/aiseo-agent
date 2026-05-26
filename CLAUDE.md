@@ -18,7 +18,7 @@ Two more sources sit alongside this file and supersede it on their specific topi
 - `docs/aiseo-agent/ARCHITECTURE.md` — full design rationale for the 4-guard model,
   the `pre_user_message` hook contract, and the thin-wrapper-vs-real-cli decision.
 - `.plans/` — in-flight design docs (currently: `dataforseo-plugin.md`,
-  `streaming-support.md`, `openai-api-server.md`).
+  `streaming-support.md`, `openai-api-server.md`, `multi-tenant-saas.md`).
 
 ## Entry points and brand switch
 
