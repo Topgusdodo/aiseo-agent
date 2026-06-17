@@ -63,6 +63,38 @@ _TRUSTED_PRIVATE_IP_HOSTS = frozenset({
     "multimedia.nt.qq.com.cn",
 })
 
+# HTTPS public-internet domains whose apex / subdomains may resolve to
+# benchmark-range IPs (198.18.0.0/15) on certain test/captive networks even
+# though they are legitimate public web targets. Suffix-matched: an entry
+# ``ahrefs.com`` matches ``ahrefs.com``, ``www.ahrefs.com``, ``blog.ahrefs.com``.
+#
+# Only relaxes IP-class blocking for these hosts when scheme==https. Cloud
+# metadata sentinels (169.254.169.254, ::ffff:169.x, metadata.google.internal,
+# ECS task creds, CGNAT etc.) remain always-blocked.
+#
+# Rationale: the LLM observed seeing benchmark-IP resolutions for public SEO
+# reference sites (ahrefs/semrush/similarweb/moz/backlinko/detailed/seo.do)
+# and retried web_extract until session-timeout (180s) — a retry storm with
+# zero output. Allow-listing the well-known public SEO tool surfaces breaks
+# the retry loop on networks that mis-resolve them.
+_TRUSTED_PRIVATE_IP_SUFFIXES = (
+    "ahrefs.com",
+    "semrush.com",
+    "similarweb.com",
+    "moz.com",
+    "backlinko.com",
+    "seo.do",
+    "detailed.com",
+    "searchenginejournal.com",
+    "searchengineland.com",
+    "neilpatel.com",
+    "ubersuggest.com",
+    "majestic.com",
+    "spyfu.com",
+    "screamingfrog.co.uk",
+    "sistrix.com",
+)
+
 # 100.64.0.0/10 (CGNAT / Shared Address Space, RFC 6598) is NOT covered by
 # ipaddress.is_private — it returns False for both is_private and is_global.
 # Must be blocked explicitly. Used by carrier-grade NAT, Tailscale/WireGuard
@@ -243,9 +275,42 @@ def is_always_blocked_url(url: str) -> bool:
         return False
 
 
+def _matches_trusted_suffix(hostname: str) -> bool:
+    """Return True when hostname equals or is a subdomain of a trusted suffix."""
+    for suffix in _TRUSTED_PRIVATE_IP_SUFFIXES:
+        if hostname == suffix or hostname.endswith("." + suffix):
+            return True
+    return False
+
+
+def _is_benchmark_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True when the IP is in the RFC 2544 benchmark test range (198.18.0.0/15).
+
+    Some SEO tools and corporate networks mis-resolve public domains to this
+    range. Trusted SEO HTTPS hosts are permitted to resolve here to break
+    retry storms. This range and nothing else — loopback, RFC-1918, and CGNAT
+    are NOT covered by this exception.
+    """
+    _BENCHMARK_NETWORK = ipaddress.IPv4Network("198.18.0.0/15")
+    try:
+        return isinstance(ip, ipaddress.IPv4Address) and ip in _BENCHMARK_NETWORK
+    except Exception:
+        return False
+
+
 def _allows_private_ip_resolution(hostname: str, scheme: str) -> bool:
-    """Return True when a trusted HTTPS hostname may bypass IP-class blocking."""
-    return scheme == "https" and hostname in _TRUSTED_PRIVATE_IP_HOSTS
+    """Return True when a trusted HTTPS hostname may bypass IP-class blocking.
+
+    Trust is granted to:
+      - Exact matches in ``_TRUSTED_PRIVATE_IP_HOSTS`` (e.g. QQ media CDN)
+      - Apex / subdomain matches against ``_TRUSTED_PRIVATE_IP_SUFFIXES``
+        (e.g. ahrefs.com, www.ahrefs.com, blog.ahrefs.com)
+    """
+    if scheme != "https":
+        return False
+    if hostname in _TRUSTED_PRIVATE_IP_HOSTS:
+        return True
+    return _matches_trusted_suffix(hostname)
 
 
 def is_safe_url(url: str) -> bool:
@@ -300,12 +365,19 @@ def is_safe_url(url: str) -> bool:
                 )
                 return False
 
-            if not allow_all_private and not allow_private_ip and _is_blocked_ip(ip):
-                logger.warning(
-                    "Blocked request to private/internal address: %s -> %s",
-                    hostname, ip_str,
-                )
-                return False
+            blocked = _is_blocked_ip(ip)
+            if not allow_all_private and blocked:
+                # Trusted SEO HTTPS hosts may only bypass blocking for the
+                # RFC 2544 benchmark range (198.18.0.0/15) — the original
+                # intent. Loopback (127.x), RFC-1918 (10.x/172.16.x/192.168.x),
+                # CGNAT (100.64.x), and all other private ranges are always
+                # blocked even for trusted domains (DNS rebinding defence).
+                if not (allow_private_ip and _is_benchmark_ip(ip)):
+                    logger.warning(
+                        "Blocked request to private/internal address: %s -> %s",
+                        hostname, ip_str,
+                    )
+                    return False
 
         if allow_all_private:
             logger.debug(

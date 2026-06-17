@@ -835,6 +835,46 @@ class TestPromptBuilderConstants:
         assert "absolute" in hint
 
 
+class TestPromptBuilderBrandSwitch:
+    """env-guard contract: AISEO_BRAND_ACTIVE=1 → AISEO; unset → Hermes (default).
+
+    DEFAULT_AGENT_IDENTITY is evaluated at module import time. The conftest
+    clears AISEO_BRAND_ACTIVE for every test, so the in-process module state
+    always reflects the Hermes default — verified here. The AISEO path can
+    only be exercised in a fresh subprocess where the env is set before any
+    Python module imports prompt_builder.
+    """
+
+    def test_default_identity_is_hermes_in_current_process(self):
+        assert DEFAULT_AGENT_IDENTITY.startswith("You are Hermes Agent"), (
+            DEFAULT_AGENT_IDENTITY[:80]
+        )
+        assert "AISEO Agent" not in DEFAULT_AGENT_IDENTITY
+
+    def test_aiseo_identity_with_env_in_subprocess(self):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[2]
+        env = {**os.environ, "AISEO_BRAND_ACTIVE": "1"}
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import agent.prompt_builder as pb; "
+             "print(pb.DEFAULT_AGENT_IDENTITY[:120])"],
+            env=env,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        out = result.stdout.strip()
+        assert out.startswith("You are AISEO Agent"), out
+        assert "Hermes Agent" not in out
+
+
 # =========================================================================
 # Environment hints
 # =========================================================================

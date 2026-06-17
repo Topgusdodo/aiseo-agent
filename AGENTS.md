@@ -411,6 +411,16 @@ hermes_cli/skin_engine.py    # SkinConfig dataclass, built-in skins, YAML loader
 | Response box label | `branding.response_label` | `cli.py` |
 | Prompt symbol | `branding.prompt_symbol` | `cli.py` |
 
+> **Fork note (aiseo-agent)**: This fork adds a second runtime brand lever — the
+> `AISEO_BRAND_ACTIVE=1` env var, set by `aiseo_cli.py main()` when the wrapper
+> is invoked. `banner.py::format_banner_version_label` and
+> `agent/prompt_builder.py::DEFAULT_AGENT_IDENTITY` read this env directly and
+> emit "AISEO Agent" instead of "Hermes Agent" (independent of the skin
+> system). The skin `branding.agent_name` still applies in the same code
+> paths; the env switch shadows the literal-string fallback. See
+> `tests/agent/test_prompt_builder.py::TestPromptBuilderBrandSwitch` for the
+> contract.
+
 ### Built-in skins
 
 - `default` — Classic Hermes gold/kawaii (the current look)

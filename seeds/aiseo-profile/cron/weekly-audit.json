@@ -1,0 +1,15 @@
+{
+  "name": "aiseo-weekly-audit",
+  "schedule": "0 8 * * 1",
+  "prompt": "Run seo-weekly-report on the primary site stored in MEMORY.md. Produce the 3-section delta report (current snapshot / changes vs last / next actions). If MEMORY.md has no primary site, ask the user to set one and skip this run.",
+  "prompt_template": "Run seo-weekly-report on {primary_site}. Produce the 3-section delta report (current snapshot / changes vs last / next actions).",
+  "memory_fields": ["primary_site"],
+  "skill": ["seo-weekly-report"],
+  "deliver": "local",
+  "_aiseo_notes": {
+    "purpose": "weekly delta — current vs last snapshot for the user's primary SEO-tracked site",
+    "tool_budget": "<= 5 web_extract calls; 0 browser calls expected",
+    "cost_estimate": "1-2k tokens per run (no full-site sample)",
+    "deliver_choice_rationale": "local writes job stdout to the local cron output directory — no messaging toolset involved (messaging is in agent.disabled_toolsets)"
+  }
+}

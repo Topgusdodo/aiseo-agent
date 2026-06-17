@@ -1,0 +1,81 @@
+# seeds/aiseo-profile/config.yaml — AISEO Agent profile config
+#
+# Field authority is the Hermes DEFAULT_CONFIG in hermes_cli/config.py (D14).
+# Phase 0 verified field locations:
+#   - toolsets:                top-level (config.py:442; default ["hermes-cli"])
+#   - agent.disabled_toolsets: agent.disabled_toolsets (config.py:516; default [])
+#   - plugins.enabled:         opt-in allow-list (config.py:3518-3574)
+#   - display.streaming:       display.streaming (config.py:911); NOT top-level
+#                              -> plan template "streaming: false" was wrong;
+#                              we use display.streaming here (D-决策附录 entry).
+
+# model: <intentionally unset>
+# Why: aiseo profile is a fully isolated HERMES_HOME at ~/.hermes/profiles/aiseo/
+# (hermes_cli/main.py:119 `_apply_profile_override` sets os.environ["HERMES_HOME"]
+# to the profile path). Its `.env`, `config.yaml`, `providers`, and `auth` are
+# all independent — it does NOT inherit the default profile's API key or model.
+# To configure model + provider key for the aiseo profile, run ONE of:
+#   aiseo setup                     # full guided setup (recommended)
+#   aiseo model                     # if .env already copied / API key already set
+# Locking a specific model here (e.g. claude-sonnet-4-6) breaks users whose
+# only configured provider is something else. D3 decision: profile does not
+# lock the model.
+
+# NOTE (caveat): top-level `toolsets` is a declarative config — NOT a guarantee
+# of "active on every surface". Hermes loaders (CLI / TUI / Gateway) apply
+# surface-specific filtering. V1 verification gate (Phase 0) must confirm
+# CLI / TUI / Gateway equivalence; record any divergence to D-决策附录.
+toolsets:
+  - web
+  - search
+  - browser
+  - aiseo_skills_read
+  - aiseo_schedule_task
+  - aiseo_manage_scheduled_tasks
+
+display:
+  streaming: false                      # D15 default off (Phase 1 OutputGate
+                                        # operates on full text; Phase 2 stream
+                                        # gate enables `streaming: true`).
+
+agent:
+  disabled_toolsets:                    # ToolGate defense layer 1: boot-time refusal
+    - terminal
+    - code_execution
+    - delegation
+    - messaging
+    - file
+    - skills                            # disables the generic Hermes skills toolset
+                                        # (skills_list / skill_view / skill_manage).
+                                        # AISEO exposes read-only profile skills
+                                        # through aiseo_skills_read instead.
+    - cronjob
+    - image_gen
+
+plugins:
+  enabled:
+    - aiseo-guard                       # D13: plugin discovery scans <repo>/plugins/
+                                        # (skip names: memory, context_engine,
+                                        # platforms, model-providers); aiseo-guard
+                                        # is not in the skip set, so it auto-loads.
+    - dataforseo                        # Structured SEO data source (paid API).
+                                        # Tools grey out when DATAFORSEO_BASE64
+                                        # env var is unset; see .env.example for
+                                        # how to generate the base64 token.
+
+# Anthropic prompt cache TTL — upstream default is "5m" (hermes_cli/config.py:739).
+# AISEO cron tasks reuse the same system prompt + skill files on a daily / weekly
+# cadence, so 1h gives a much higher hit rate than 5m. Cache lives outside the
+# 4-hook defence chain (InputGate/ToolGate/external-content/OutputGate) so this
+# is a pure cost lever with no safety trade-off.
+prompt_caching:
+  cache_ttl: "1h"
+
+# Tool loop circuit breaker — upstream defaults are warnings on, hard_stop off
+# (hermes_cli/config.py:713-726). AISEO cron jobs run unattended under
+# skip_memory=True; a same_tool_failure loop can bill overnight before anyone
+# notices. The 4-hook defence chain does not cover semantic repetition, so this
+# hard_stop is the only cost-runaway brake. warn-after 3 / hard-stop-after 8
+# match the upstream-recommended thresholds.
+tool_loop_guardrails:
+  hard_stop_enabled: true

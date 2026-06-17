@@ -1,0 +1,15 @@
+{
+  "name": "aiseo-monthly-keyword-research",
+  "schedule": "0 10 1 * *",
+  "prompt": "Run keyword-opportunity for the top keyword from MEMORY.md '## 关注关键词' section (seed_keyword = first entry). Use market and language from MEMORY.md '## 目标市场 / 受众' (default US/en if absent). Produce the 3-section opportunity report. If MEMORY.md has no tracked keyword, ask the user and skip this run.",
+  "prompt_template": "Run keyword-opportunity for seed_keyword='{top_keyword}', market={market}, language={language}. Produce the 3-section opportunity report.",
+  "memory_fields": ["top_keyword", "market", "language"],
+  "skill": ["keyword-opportunity"],
+  "deliver": "local",
+  "_aiseo_notes": {
+    "purpose": "monthly keyword opportunity scan — find new long-tail / intent gaps relative to tracked seed keyword",
+    "tool_budget": "<= 8 web_search calls + <= 1 web_extract for top-3 page verification",
+    "cost_estimate": "5-8k tokens per run (SERP scrape heavy)",
+    "deliver_choice_rationale": "same as weekly-audit — local sink, no messaging"
+  }
+}

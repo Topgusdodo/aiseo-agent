@@ -77,6 +77,15 @@ hermes update       # Update to the latest version
 hermes doctor       # Diagnose any issues
 ```
 
+AISEO profile shortcut for this fork:
+
+```bash
+uv run aiseo              # No args: starts chat on the aiseo profile
+uv run aiseo setup        # Any subcommand passes through (Route B; equivalent to hermes -p aiseo setup)
+```
+
+The `aiseo` wrapper sets `AISEO_BRAND_ACTIVE=1` before invoking Hermes, which switches the startup banner and the default agent identity to **"AISEO Agent"** instead of the upstream **"Hermes Agent"**. Running `hermes -p aiseo` directly (without the wrapper) preserves Hermes branding — intentional, so the upstream CLI is never silently re-branded.
+
 📖 **[Full documentation →](https://hermes-agent.nousresearch.com/docs/)**
 
 ## CLI vs Messaging Quick Reference

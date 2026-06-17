@@ -40,6 +40,8 @@ privvy*
 images/
 __pycache__/
 hermes_agent.egg-info/
+build/
+dist/
 wandb/
 testlogs
 
@@ -70,3 +72,19 @@ mini-swe-agent/
 result
 website/static/api/skills-index.json
 models-dev-upstream/
+/.idea
+
+# Local Finder duplicates (macOS "Copy of <file>" artifacts; may contain
+# absolute paths from the original install location).
+Copy of *
+# Bun lockfile — this project is npm-managed (see package-lock.json); bun.lock
+# would only appear if a contributor accidentally ran `bun install`.
+bun.lock
+
+# AISEO runtime audit run outputs (per-run profile homes, screenshots, logs).
+# The harness + prompt TSVs are tracked; only the generated results dir is not.
+tests/aiseo_runtime_audit/results/
+tests/aiseo_llm/results/
+
+# Local model-comparison evaluation outputs (not for PR)
+reports/

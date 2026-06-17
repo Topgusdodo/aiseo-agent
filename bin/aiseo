@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/aiseo — thin wrapper; all logic lives in aiseo_cli.py::main().
+set -euo pipefail
+
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd -P )"
+REPO_ROOT="$( cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd -P )"
+
+export AISEO_BRAND_ACTIVE=1
+# PYTHON env var is a test-only override; users should not set it manually
+# (forcing an incompatible interpreter will fail with cryptic SyntaxError).
+exec "${PYTHON:-python3}" "$REPO_ROOT/aiseo_cli.py" "$@"
